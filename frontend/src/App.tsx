@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { loadCsrf } from "./services/api";
+import ProjectDashboard from "./components/ProjectDashboard";
 
 type User = {
   id: number;
@@ -75,12 +76,7 @@ export default function App() {
             </button>
           </div>
 
-          <div className="mt-10 rounded-xl border border-slate-800 p-8">
-            <h2 className="text-xl font-semibold">Your Workspace</h2>
-            <p className="mt-2 text-slate-400">
-              Project management features are coming next.
-            </p>
-          </div>
+          <ProjectDashboard />
         </div>
       </main>
     );

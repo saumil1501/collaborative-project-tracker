@@ -22,6 +22,7 @@ import org.springframework.security.web.csrf.CsrfToken;
 import java.security.Principal;
 import java.util.Map;
 
+
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -70,6 +71,7 @@ public class AuthController {
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
 
+        HttpSession session = requestContext.getSession();
         requestContext.changeSessionId();
 
         requestContext.getSession().setAttribute(
