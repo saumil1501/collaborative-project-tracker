@@ -1,55 +1,149 @@
 import { useEffect, useState } from "react";
-import { Activity, CheckCircle2, Loader2 } from "lucide-react";
-import api from "./services/api";
+import api, { loadCsrf } from "./services/api";
 
-function App() {
-  const [status, setStatus] = useState("Checking connection...");
-  const [connected, setConnected] = useState(false);
+type User = {
+  id: number;
+  name: string;
+  email: string;
+};
+
+export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [registerMode, setRegisterMode] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    api
-      .get("/health")
-      .then((response) => {
-        setStatus(response.data.status);
-        setConnected(true);
-      })
-      .catch(() => {
-        setStatus("Backend connection failed");
-        setConnected(false);
-      });
+    loadCsrf()
+      .then(() => api.get<User>("/auth/me"))
+      .then(({ data }) => setUser(data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  return (
-    <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
-      <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-xl">
-        <div className="mb-6 flex items-center gap-3">
-          <Activity className="h-8 w-8 text-indigo-400" />
-          <h1 className="text-2xl font-bold">
-            Collaborative Project Tracker
-          </h1>
-        </div>
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
 
-        <p className="mb-6 text-slate-400">
-          React + Spring Boot + MySQL
-        </p>
+    try {
+      if (registerMode) {
+        await api.post("/auth/register", { name, email, password });
+      }
 
-        <div className="flex items-center gap-3 rounded-xl bg-slate-800 p-4">
-          {connected ? (
-            <CheckCircle2 className="text-green-400" />
-          ) : (
-            <Loader2 className="text-amber-400" />
-          )}
+      const { data } = await api.post<User>("/auth/login", {
+        email,
+        password,
+      });
 
-          <div>
-            <p className="text-sm text-slate-400">
-              Backend connection
+      setUser(data);
+      setPassword("");
+    } catch {
+      setError("Authentication failed. Check your details.");
+    }
+  }
+
+  async function logout() {
+    await api.post("/auth/logout");
+    setUser(null);
+    await loadCsrf();
+  }
+
+  if (loading) {
+    return <div className="p-10">Loading...</div>;
+  }
+
+  if (user) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-white p-10">
+        <div className="mx-auto max-w-4xl">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold">
+                Welcome, {user.name}
+              </h1>
+              <p className="text-slate-400">{user.email}</p>
+            </div>
+
+            <button
+              onClick={logout}
+              className="rounded-lg bg-red-600 px-5 py-2"
+            >
+              Logout
+            </button>
+          </div>
+
+          <div className="mt-10 rounded-xl border border-slate-800 p-8">
+            <h2 className="text-xl font-semibold">Your Workspace</h2>
+            <p className="mt-2 text-slate-400">
+              Project management features are coming next.
             </p>
-            <p className="font-semibold">{status}</p>
           </div>
         </div>
-      </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-white">
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-md space-y-5 rounded-2xl border border-slate-800 bg-slate-900 p-8"
+      >
+        <h1 className="text-3xl font-bold">
+          {registerMode ? "Create account" : "Welcome back"}
+        </h1>
+
+        {registerMode && (
+          <input
+            required
+            placeholder="Full name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full rounded-lg bg-slate-800 p-3"
+          />
+        )}
+
+        <input
+          required
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full rounded-lg bg-slate-800 p-3"
+        />
+
+        <input
+          required
+          type="password"
+          minLength={registerMode ? 8 : undefined}
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="w-full rounded-lg bg-slate-800 p-3"
+        />
+
+        {error && <p className="text-red-400">{error}</p>}
+
+        <button className="w-full rounded-lg bg-indigo-600 p-3 font-semibold">
+          {registerMode ? "Register" : "Login"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setRegisterMode(!registerMode);
+            setError("");
+          }}
+          className="w-full text-sm text-indigo-400"
+        >
+          {registerMode
+            ? "Already have an account? Login"
+            : "Don't have an account? Register"}
+        </button>
+      </form>
     </main>
   );
 }
-
-export default App;
