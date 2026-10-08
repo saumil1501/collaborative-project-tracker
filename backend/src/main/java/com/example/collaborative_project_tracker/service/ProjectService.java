@@ -17,11 +17,13 @@ public class ProjectService {
     private final ProjectRepository projects;
     private final UserRepository users;
     private final ProjectMembershipRepository memberships;
+    private final IssueRepository issueRepository;
 
-    public ProjectService(ProjectRepository projects, UserRepository users, ProjectMembershipRepository memberships) {
+    public ProjectService(ProjectRepository projects, UserRepository users, ProjectMembershipRepository memberships, IssueRepository issueRepository) {
         this.projects = projects;
         this.users = users;
 		this.memberships = memberships;
+		this.issueRepository = issueRepository;
     }
 
     @Transactional
@@ -73,7 +75,14 @@ public class ProjectService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
 
+        // Delete all issues associated with this project
+        issueRepository.deleteByProjectId(projectId);
+
+        // Delete project memberships
         memberships.deleteByProjectId(projectId);
+
+        // Finally, delete the project
+        projects.delete(project);
     }
 
     private ProjectResponse toResponse(Project project) {
