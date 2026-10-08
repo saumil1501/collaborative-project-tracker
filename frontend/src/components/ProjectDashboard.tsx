@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { FolderKanban, Plus, Trash2 } from "lucide-react";
 import api from "../services/api";
+import ProjectMembers from "./ProjectMembers";
 
 type Project = {
   id: number;
@@ -10,7 +11,12 @@ type Project = {
   createdAt: string;
 };
 
-export default function ProjectDashboard() {
+export default function ProjectDashboard( {
+    currentUserId,
+}: {
+  currentUserId: number;
+})
+{
   const [projects, setProjects] = useState<Project[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -55,6 +61,8 @@ export default function ProjectDashboard() {
       setError("Failed to delete project");
     }
   }
+
+  
 
   return (
     <div className="mt-10">
@@ -123,13 +131,12 @@ export default function ProjectDashboard() {
                   {new Date(project.createdAt).toLocaleDateString()}
                 </span>
 
-                <button
-                  onClick={() => deleteProject(project.id)}
-                  className="text-red-400 hover:text-red-300"
-                  title="Delete project"
-                >
-                  <Trash2 size={18} />
+                {project.ownerId === currentUserId && (
+                <button onClick={() => deleteProject(project.id)}
+                        className="text-red-400 hover:text-red-300">
+                          <Trash2 size={18} />
                 </button>
+              )}
               </div>
             </div>
           ))}

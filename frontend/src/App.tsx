@@ -76,7 +76,8 @@ export default function App() {
             </button>
           </div>
 
-          <ProjectDashboard />
+          <ProjectDashboard currentUserId={user.id} />
+
         </div>
       </main>
     );

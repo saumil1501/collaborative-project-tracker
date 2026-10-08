@@ -16,10 +16,12 @@ public class ProjectService {
 
     private final ProjectRepository projects;
     private final UserRepository users;
+    private final ProjectMembershipRepository memberships;
 
-    public ProjectService(ProjectRepository projects, UserRepository users) {
+    public ProjectService(ProjectRepository projects, UserRepository users, ProjectMembershipRepository memberships) {
         this.projects = projects;
         this.users = users;
+		this.memberships = memberships;
     }
 
     @Transactional
@@ -35,7 +37,16 @@ public class ProjectService {
         project.setDescription(request.description());
         project.setOwner(owner);
 
-        return toResponse(projects.save(project));
+        Project saved = projects.save(project);
+
+        ProjectMembership membership = new ProjectMembership();
+        membership.setProject(saved);
+        membership.setUser(owner);
+        membership.setRole(ProjectRole.OWNER);
+
+        memberships.save(membership);
+
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -45,9 +56,9 @@ public class ProjectService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.UNAUTHORIZED));
 
-        return projects.findByOwnerIdOrderByCreatedAtDesc(user.getId())
+        return memberships.findByUserId(user.getId())
                 .stream()
-                .map(this::toResponse)
+                .map(m -> toResponse(m.getProject()))
                 .toList();
     }
 
@@ -62,7 +73,7 @@ public class ProjectService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
 
-        projects.delete(project);
+        memberships.deleteByProjectId(projectId);
     }
 
     private ProjectResponse toResponse(Project project) {
