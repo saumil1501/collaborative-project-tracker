@@ -33,7 +33,7 @@ class ActivityServiceTests {
         projectMemberships = mock(ProjectMembershipRepository.class); memberships = mock(MembershipService.class);
         comments = mock(IssueCommentRepository.class);
         service = new ActivityService(activities, issues, users, memberships);
-        issueService = new IssueService(issues, projects, projectMemberships, users, memberships, comments, activities, service);
+        issueService = new IssueService(issues, projects, projectMemberships, users, memberships, comments, activities, service, mock(NotificationService.class));
         actor = new AppUser(); actor.setId(7L); actor.setName("Sam"); actor.setEmail("sam@example.test");
         project = new Project(); project.setId(1L); project.setOwner(actor);
         issue = new Issue(); issue.setId(2L); issue.setProject(project); issue.setTitle("Original");

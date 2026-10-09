@@ -23,6 +23,7 @@ public class IssueService {
     private final IssueCommentRepository comments;
     private final IssueActivityRepository activities;
     private final ActivityService activityService;
+    private final NotificationService notifications;
 
     public IssueService(
             IssueRepository issues,
@@ -32,7 +33,7 @@ public class IssueService {
             MembershipService membershipService,
             IssueCommentRepository comments,
             IssueActivityRepository activities,
-            ActivityService activityService) {
+            ActivityService activityService, NotificationService notifications) {
         this.issues = issues;
         this.projects = projects;
         this.memberships = memberships;
@@ -41,6 +42,7 @@ public class IssueService {
         this.comments = comments;
         this.activities = activities;
         this.activityService = activityService;
+        this.notifications = notifications;
     }
 
     @Transactional
@@ -61,6 +63,7 @@ public class IssueService {
 
         Issue saved = issues.save(issue);
         activityService.record(saved, email, ActivityField.CREATED, null, saved.getTitle());
+        notifications.assigned(saved, email);
         return toResponse(saved);
     }
 
@@ -92,6 +95,7 @@ public class IssueService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Only the project owner or current assignee can change issue status");
         }
+        if (issue.getStatus() != request.status()) notifications.statusChanged(issue, actor, request.status());
         activityService.record(issue, email, ActivityField.STATUS, issue.getStatus().name(), request.status().name());
         issue.setStatus(request.status());
 
@@ -107,6 +111,7 @@ public class IssueService {
 
         Issue issue = getIssue(projectId, issueId);
 
+        boolean assignmentChanged = !Objects.equals(issue.getAssignee() != null ? issue.getAssignee().getId() : null, request.assigneeId());
         AppUser assignee = resolveAssignee(projectId, request.assigneeId());
         IssuePriority priority = request.priority() != null ? request.priority() : IssuePriority.MEDIUM;
         activityService.record(issue, email, ActivityField.TITLE, issue.getTitle(), request.title().trim());
@@ -123,6 +128,7 @@ public class IssueService {
         issue.setPriority(priority);
         issue.setDueDate(request.dueDate());
         issue.setAssignee(assignee);
+        if (assignmentChanged && assignee != null) notifications.assigned(issue, email);
 
         return toResponse(issue);
     }

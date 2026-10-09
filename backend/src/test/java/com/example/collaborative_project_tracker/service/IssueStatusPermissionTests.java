@@ -38,7 +38,7 @@ class IssueStatusPermissionTests {
         users = mock(UserRepository.class); memberships = mock(MembershipService.class);
         activity = mock(ActivityService.class);
         service = new IssueService(issues, projects, mock(ProjectMembershipRepository.class), users,
-                memberships, mock(IssueCommentRepository.class), mock(IssueActivityRepository.class), activity);
+                memberships, mock(IssueCommentRepository.class), mock(IssueActivityRepository.class), activity, mock(NotificationService.class));
         owner = user(1); assignee = user(2); other = user(3);
         project = new Project(); project.setId(10L); project.setOwner(owner);
         issue = new Issue(); issue.setId(20L); issue.setProject(project); issue.setAssignee(assignee);

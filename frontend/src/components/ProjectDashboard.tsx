@@ -5,6 +5,7 @@ import { FolderKanban, Plus, Trash2, ArrowRight } from "lucide-react";
 import api from "../services/api";
 import ProjectMembers from "./ProjectMembers";
 import KanbanBoard from "./KanbanBoard";
+import type { NotificationTarget } from "./Notifications";
 
 type Project = {
   id: number;
@@ -16,10 +17,12 @@ type Project = {
 
 type ProjectDashboardProps = {
   currentUserId: number;
+  notificationTarget?: NotificationTarget | null;
 };
 
 export default function ProjectDashboard({
   currentUserId,
+  notificationTarget,
 }: ProjectDashboardProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [name, setName] = useState("");
@@ -31,6 +34,18 @@ export default function ProjectDashboard({
 
   const [selectedProject, setSelectedProject] =
     useState<Project | null>(null);
+  const [activeTarget, setActiveTarget] = useState<NotificationTarget | null>(null);
+
+  useEffect(() => {
+    if (!notificationTarget) return;
+    const controller = new AbortController();
+    api.get<Project>(`/projects/${notificationTarget.projectId}`, { signal: controller.signal })
+      .then(({ data }) => { if (!controller.signal.aborted) { setSelectedProject(data); setActiveTarget(notificationTarget); setError(""); } })
+      .catch(() => {
+        if (!controller.signal.aborted) { setSelectedProject(null); setActiveTarget(null); setError("This project is no longer available to you."); }
+      });
+    return () => controller.abort();
+  }, [notificationTarget]);
 
   // Fetch projects accessible to the logged-in user
   async function fetchProjects() {
@@ -108,15 +123,18 @@ export default function ProjectDashboard({
   if (selectedProject) {
     return (
       <KanbanBoard
-        key={selectedProject.id}
+        key={`${selectedProject.id}:${activeTarget?.requestId ?? 0}`}
         projectId={selectedProject.id}
         projectName={selectedProject.name}
         currentUserId={currentUserId}
+        initialIssueId={activeTarget?.issueId}
+        initialSettings={activeTarget != null && activeTarget.issueId === null}
         onProjectUpdated={project => {
           setSelectedProject(project);
           setProjects(previous => previous.map(item => item.id === project.id ? project : item));
         }}
         onBack={() => {
+          setActiveTarget(null);
           setSelectedProject(null);
           void fetchProjects();
         }}
@@ -266,7 +284,7 @@ export default function ProjectDashboard({
                 {/* Open Kanban Board */}
                 <button
                   type="button"
-                  onClick={() => setSelectedProject(project)}
+                  onClick={() => { setActiveTarget(null); setSelectedProject(project); }}
                   className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500"
                 >
                   Open Board

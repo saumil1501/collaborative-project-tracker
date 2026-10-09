@@ -65,6 +65,17 @@ A full-stack, multi-user project management application built using **Spring Boo
 - History starts when tracking is added; earlier changes to existing issues are not reconstructed
 - History is read-only and is deleted with its issue or project
 
+### In-app Notifications
+- A notification bell shows unread counts and the latest 50 notifications, newest first
+- New assignments notify the current assignee; assignee status changes notify the owner
+- New comments notify the owner and current assignee, excluding the author and duplicate recipients
+- Leave requests notify the owner; approvals and rejections notify the requester
+- Notifications are saved in MySQL in the same transaction as the triggering change
+- Mark one or all notifications as read; only the recipient can read or update their inbox
+- Refresh every 30 seconds while the page is visible, on window focus, and when opening the inbox
+- Open the related issue or project settings; links are disabled after deletion or loss of access
+- Historical notifications remain readable, including approval after a member leaves; no notifications are created for unchanged status/assignment or the actor's own actions
+
 ## Tech Stack
 
 | Layer | Technologies |
@@ -121,6 +132,7 @@ The application uses seven core domain entities:
 | IssueComment | Stores issue discussion, authors, creation timestamps, and edit timestamps |
 | IssueActivity | Stores issue changes, actors, timestamps, and previous/new values |
 | ProjectLeaveRequest | Stores each member's latest request to leave and its decision status |
+| Notification | Stores recipient-specific notifications, historical target IDs, and read timestamps |
 
 ### Entity Relationships
 
@@ -189,6 +201,14 @@ Requests use `PENDING`, `APPROVED`, `REJECTED`, and `CANCELLED` states. A member
 | PUT | `/api/projects/{projectId}/issues/{issueId}` | Update issue (owner only) |
 | PATCH | `/api/projects/{projectId}/issues/{issueId}/status` | Change status (owner or current assignee only) |
 | DELETE | `/api/projects/{projectId}/issues/{issueId}` | Delete issue (owner only) |
+
+### Notifications
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/notifications` | Latest 50 notifications and total unread count for the authenticated recipient |
+| PATCH | `/api/notifications/{id}/read` | Mark one of your notifications read |
+| PATCH | `/api/notifications/read-all` | Mark all your notifications read |
 
 ### Comments
 
@@ -316,12 +336,14 @@ An optional browser check in `frontend/tests/board.browser.mjs` uses Playwright 
 
 To run the browser check without a preview server, build the frontend first and set `BOARD_TEST_STATIC=1`. The check intercepts the page's requests and serves the local `dist` files and mock API data, including comment creation/editing/deletion, author-only controls, plain-text rendering, failed-save recovery, and read-only activity history with newest-first ordering, previous/new values, empty states, and error retry.
 
-From `backend`, run `./mvnw -Dtest=IssueStatusPermissionTests,ProjectSettingsServiceTests,ActivityServiceTests,CommentServiceTests,CommentValidationTests test` (or `mvnw.cmd` on Windows) to check project editing, leave permissions and decisions, activity change detection, project access, comment permissions, validation, and deletion cleanup without a database.
+From `backend`, run `./mvnw -Dtest=NotificationServiceTests,IssueStatusPermissionTests,ProjectSettingsServiceTests,ActivityServiceTests,CommentServiceTests,CommentValidationTests test` (or `mvnw.cmd` on Windows) to check project editing, leave permissions and decisions, activity change detection, project access, comment permissions, validation, and deletion cleanup without a database.
 If Windows sandbox restrictions interfere with the forked test JVM, add `-DforkCount=0` to that focused test command.
 
 For project settings UI checks, build the frontend, make Playwright available, and run `node tests/project-settings.browser.mjs` from `frontend`. This uses intercepted mock API responses and local build files, covering owner/member controls, edit failure recovery, request/cancel/resubmit/reject/approve, direct removal, board refresh, and access loss.
 
 To explicitly test settings against the configured live MySQL database, run `./mvnw -Dtest=ProjectSettingsMysqlTests -DliveMysqlTests=true -DforkCount=0 test` from `backend`. The integration test creates temporary users and a project, exercises status permissions, reassignment, leave decisions and membership removal, flushes and reloads persisted values, checks preserved comments and activity, and rolls back all test records. It is disabled unless `liveMysqlTests=true` is supplied. App startup may update the database schema under the existing Hibernate `ddl-auto=update` configuration.
+
+For notification UI checks, build the frontend, make Playwright available, and run `node tests/notifications.browser.mjs` from `frontend`. This uses mock API responses to verify unread counts, individual/all read actions, failure recovery, issue/settings navigation, unavailable targets, periodic refresh, and mobile layout. Live MySQL tests also verify persisted notification recipients, self-action suppression, read ownership, and historical notifications after access loss or deletion.
 
 ## Future Enhancements
 

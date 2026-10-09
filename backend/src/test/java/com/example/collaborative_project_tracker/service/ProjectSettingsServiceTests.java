@@ -31,7 +31,7 @@ class ProjectSettingsServiceTests {
         requests = mock(ProjectLeaveRequestRepository.class); users = mock(UserRepository.class);
         issues = mock(IssueRepository.class); activity = mock(ActivityService.class);
         service = new ProjectSettingsService(projects, memberships, requests, users, issues,
-                new MembershipService(memberships, projects, users), activity);
+                new MembershipService(memberships, projects, users), activity, mock(NotificationService.class));
         owner = user(1L, "owner@example.test"); member = user(2L, "member@example.test"); other = user(3L, "other@example.test");
         project = new Project(); project.setId(10L); project.setName("Original"); project.setOwner(owner);
         ownerMembership = membership(owner, ProjectRole.OWNER); memberMembership = membership(member, ProjectRole.MEMBER);

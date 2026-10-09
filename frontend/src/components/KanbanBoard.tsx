@@ -18,11 +18,13 @@ const columns = [
 const priorityColors = { LOW: "bg-slate-700/70 text-slate-300", MEDIUM: "bg-amber-400/10 text-amber-300", HIGH: "bg-rose-400/10 text-rose-300" };
 const fieldClass = "w-full rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2.5 text-sm text-slate-100";
 
-export default function KanbanBoard({ projectId, projectName, currentUserId, onBack, onProjectUpdated }: {
+export default function KanbanBoard({ projectId, projectName, currentUserId, onBack, onProjectUpdated, initialIssueId, initialSettings = false }: {
   projectId: number; projectName: string; currentUserId: number; onBack: () => void;
   onProjectUpdated: (project: ProjectDetails) => void;
+  initialIssueId?: number | null; initialSettings?: boolean;
 }) {
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(initialSettings);
+  const openedInitialIssue = useRef(false);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,12 +65,21 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
       setIssues(issueResponse.data);
       setMembers(memberResponse.data);
       setError("");
+      if (initialIssueId && !openedInitialIssue.current) {
+        openedInitialIssue.current = true;
+        const issue = issueResponse.data.find(item => item.id === initialIssueId);
+        if (issue) {
+          setTitle(issue.title); setDescription(issue.description || ""); setPriority(issue.priority);
+          setAssigneeId(issue.assigneeId?.toString() || ""); setDueDate(issue.dueDate || "");
+          setEditor({ issue });
+        } else setError("This issue is no longer available. It may have been deleted.");
+      }
     }).catch(() => {
       if (!signal?.aborted) setError("We couldn't load this board. Please try again.");
     }).finally(() => {
       if (!signal?.aborted) setLoading(false);
     });
-  }, [projectId]);
+  }, [projectId, initialIssueId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -108,6 +119,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
     setConfirmDelete(false);
     setEditor({ issue });
   }
+
 
   async function saveIssue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

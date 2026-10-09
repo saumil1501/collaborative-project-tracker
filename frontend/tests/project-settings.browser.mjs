@@ -25,6 +25,7 @@ async function newPage(userId, viewport = { width: 1280, height: 900 }) {
   await page.route("**/api/**", async route => {
     const method = route.request().method(); const path = new URL(route.request().url()).pathname;
     const reply = (data, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
+    if (path === "/api/notifications") return reply({ items: [], unreadCount: 0 });
     if (path.endsWith("/csrf")) return reply({ token: "test" });
     if (path.endsWith("/me")) return reply({ id: userId, name: userId === 7 ? "Sam Lee" : "Alex Kim", email: "test@example.test" });
     if (path === "/api/projects") return reply(members.some(member => member.userId === userId) ? [project] : []);

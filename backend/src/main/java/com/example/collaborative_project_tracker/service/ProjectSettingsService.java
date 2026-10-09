@@ -19,12 +19,14 @@ public class ProjectSettingsService {
     private final IssueRepository issues;
     private final MembershipService authorization;
     private final ActivityService activity;
+    private final NotificationService notifications;
 
     public ProjectSettingsService(ProjectRepository projects, ProjectMembershipRepository memberships,
             ProjectLeaveRequestRepository requests, UserRepository users, IssueRepository issues,
-            MembershipService authorization, ActivityService activity) {
+            MembershipService authorization, ActivityService activity, NotificationService notifications) {
         this.projects = projects; this.memberships = memberships; this.requests = requests;
         this.users = users; this.issues = issues; this.authorization = authorization; this.activity = activity;
+        this.notifications = notifications;
     }
 
     @Transactional(readOnly = true)
@@ -63,7 +65,9 @@ public class ProjectSettingsService {
         if (request.getStatus() == LeaveRequestStatus.PENDING) throw conflict("A leave request is already pending");
         request.setProject(project); request.setUser(user); request.setStatus(LeaveRequestStatus.PENDING);
         request.setRequestedAt(Instant.now()); request.setResolvedAt(null);
-        return response(requests.save(request));
+        ProjectLeaveRequest saved = requests.save(request);
+        notifications.leaveRequested(project, user);
+        return response(saved);
     }
 
     @Transactional
@@ -89,6 +93,7 @@ public class ProjectSettingsService {
         requireRemovable(project, membership);
         if (approve) removeMembership(projectId, membership, email);
         resolve(request, approve ? LeaveRequestStatus.APPROVED : LeaveRequestStatus.REJECTED);
+        notifications.leaveDecided(project, request.getUser(), approve, email);
         return response(request);
     }
 

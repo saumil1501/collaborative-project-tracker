@@ -16,13 +16,15 @@ public class CommentService {
     private final IssueRepository issues;
     private final UserRepository users;
     private final MembershipService memberships;
+    private final NotificationService notifications;
 
     public CommentService(IssueCommentRepository comments, IssueRepository issues,
-                          UserRepository users, MembershipService memberships) {
+                          UserRepository users, MembershipService memberships, NotificationService notifications) {
         this.comments = comments;
         this.issues = issues;
         this.users = users;
         this.memberships = memberships;
+        this.notifications = notifications;
     }
 
     @Transactional(readOnly = true)
@@ -41,7 +43,9 @@ public class CommentService {
         comment.setIssue(issue);
         comment.setAuthor(author);
         comment.setBody(request.body().trim());
-        return toResponse(comments.save(comment));
+        IssueComment saved = comments.save(comment);
+        notifications.commented(issue, author);
+        return toResponse(saved);
     }
 
     @Transactional

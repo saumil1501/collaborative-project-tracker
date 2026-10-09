@@ -48,6 +48,7 @@ let currentUserId = 7;
 await page.route("**/api/**", async route => {
   const request = route.request(); const path = new URL(request.url()).pathname; const method = request.method();
   const reply = (data, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
+  if (path === "/api/notifications") return reply({ items: [], unreadCount: 0 });
   if (path.endsWith("/csrf")) return reply({ token: "test-token" });
   if (path.endsWith("/me")) { const member = members.find(item => item.userId === currentUserId); return reply({ id: currentUserId, name: member.name, email: member.email }); }
   if (path.endsWith("/activity")) {

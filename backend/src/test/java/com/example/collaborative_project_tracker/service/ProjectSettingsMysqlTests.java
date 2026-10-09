@@ -31,11 +31,53 @@ class ProjectSettingsMysqlTests {
     @Autowired IssueService issueService;
     @Autowired CommentService commentService;
     @Autowired EntityManager entityManager;
+    @Autowired NotificationService notifications;
 
     private AppUser user(String name) {
         AppUser user = new AppUser(); user.setName(name);
         user.setEmail("settings-check-" + UUID.randomUUID() + "@example.invalid");
         user.setPassword("unused-test-hash"); return users.save(user);
+    }
+
+    @Test
+    void liveNotificationsPersistForTheRightPeopleAndRespectReadOwnershipAndAccess() {
+        AppUser owner = user("Notification owner"), member = user("Notification assignee"), other = user("Notification commenter");
+        Long projectId = projectService.create(new CreateProjectRequest("Notification verification", null), owner.getEmail()).id();
+        membershipService.addMember(projectId, new AddMemberRequest(member.getEmail()), owner.getEmail());
+        membershipService.addMember(projectId, new AddMemberRequest(other.getEmail()), owner.getEmail());
+        Long issueId = issueService.create(projectId, new IssueRequest("Notification task", null, null, member.getId(), null), owner.getEmail()).id();
+        issueService.update(projectId, issueId, new IssueRequest("Notification task", null, null, member.getId(), null), owner.getEmail());
+        assertEquals(1, notifications.inbox(member.getEmail()).unreadCount());
+        issueService.updateStatus(projectId, issueId, new UpdateIssueStatusRequest(IssueStatus.IN_PROGRESS), member.getEmail());
+        issueService.updateStatus(projectId, issueId, new UpdateIssueStatusRequest(IssueStatus.IN_PROGRESS), member.getEmail());
+        assertEquals(1, notifications.inbox(owner.getEmail()).unreadCount());
+        commentService.create(projectId, issueId, new CommentRequest("Third member comment"), other.getEmail());
+        commentService.create(projectId, issueId, new CommentRequest("Owner comment"), owner.getEmail());
+        commentService.create(projectId, issueId, new CommentRequest("Assignee comment"), member.getEmail());
+        assertEquals(3, notifications.inbox(member.getEmail()).unreadCount());
+        assertEquals(3, notifications.inbox(owner.getEmail()).unreadCount());
+        assertEquals(0, notifications.inbox(other.getEmail()).unreadCount());
+        var request = settings.requestLeave(projectId, member.getEmail());
+        settings.decideLeave(projectId, request.id(), false, owner.getEmail());
+        settings.requestLeave(projectId, member.getEmail());
+        settings.decideLeave(projectId, request.id(), true, owner.getEmail());
+        entityManager.flush(); entityManager.clear();
+        var memberInbox = notifications.inbox(member.getEmail());
+        assertEquals(5, memberInbox.unreadCount());
+        assertTrue(memberInbox.items().stream().allMatch(n -> n.projectId() == null && n.issueId() == null));
+        assertEquals(NotificationType.LEAVE_APPROVED, memberInbox.items().getFirst().type());
+        Long notificationId = memberInbox.items().getFirst().id();
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ResponseStatusException.class,
+                () -> notifications.markRead(notificationId, owner.getEmail())).getStatusCode());
+        notifications.markRead(notificationId, member.getEmail());
+        notifications.markRead(notificationId, member.getEmail());
+        assertEquals(4, notifications.inbox(member.getEmail()).unreadCount());
+        notifications.markAllRead(member.getEmail());
+        assertEquals(0, notifications.inbox(member.getEmail()).unreadCount());
+        assertEquals(5, notifications.inbox(owner.getEmail()).unreadCount());
+        projectService.delete(projectId, owner.getEmail());
+        entityManager.flush(); entityManager.clear();
+        assertTrue(notifications.inbox(owner.getEmail()).items().stream().allMatch(n -> n.projectId() == null));
     }
 
     @Test

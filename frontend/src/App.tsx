@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import api, { loadCsrf } from "./services/api";
 import ProjectDashboard from "./components/ProjectDashboard";
+import Notifications from "./components/Notifications";
+import type { NotificationTarget } from "./components/Notifications";
 
 type User = {
   id: number;
@@ -16,6 +18,7 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notificationTarget, setNotificationTarget] = useState<NotificationTarget | null>(null);
 
   useEffect(() => {
     loadCsrf()
@@ -49,6 +52,7 @@ export default function App() {
   async function logout() {
     await api.post("/auth/logout");
     setUser(null);
+    setNotificationTarget(null);
     await loadCsrf();
   }
 
@@ -68,15 +72,18 @@ export default function App() {
               <p className="text-slate-400">{user.email}</p>
             </div>
 
-            <button
-              onClick={logout}
-              className="rounded-lg bg-red-600 px-5 py-2"
-            >
-              Logout
-            </button>
+            <div className="flex items-center gap-3">
+              <Notifications key={user.id} onOpen={target => setNotificationTarget(previous => ({ ...target, requestId: (previous?.requestId ?? 0) + 1 }))} />
+              <button
+                onClick={logout}
+                className="rounded-lg bg-red-600 px-5 py-2"
+              >
+                Logout
+              </button>
+            </div>
           </div>
 
-          <ProjectDashboard currentUserId={user.id} />
+          <ProjectDashboard currentUserId={user.id} notificationTarget={notificationTarget} />
 
         </div>
       </main>

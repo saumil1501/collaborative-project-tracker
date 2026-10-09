@@ -26,7 +26,7 @@ class CommentServiceTests {
         issues = mock(IssueRepository.class);
         users = mock(UserRepository.class);
         memberships = mock(MembershipService.class);
-        service = new CommentService(comments, issues, users, memberships);
+        service = new CommentService(comments, issues, users, memberships, mock(NotificationService.class));
         Project project = new Project(); project.setId(1L);
         issue = new Issue(); issue.setId(2L); issue.setProject(project);
         AppUser author = new AppUser(); author.setId(7L); author.setEmail("author@example.test"); author.setName("Sam");
@@ -115,7 +115,7 @@ class CommentServiceTests {
         when(projects.findLockedById(1L)).thenReturn(Optional.of(issue.getProject()));
         IssueService issueService = new IssueService(issues, projects,
                 mock(ProjectMembershipRepository.class), users, memberships, comments,
-                mock(IssueActivityRepository.class), mock(ActivityService.class));
+                mock(IssueActivityRepository.class), mock(ActivityService.class), mock(NotificationService.class));
         issueService.delete(1L, 2L, "author@example.test");
         var order = inOrder(comments, issues);
         order.verify(comments).deleteAllByIssueId(2L);
