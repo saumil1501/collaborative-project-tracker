@@ -10,6 +10,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ProjectRepository extends JpaRepository<Project, Long> {
+    boolean existsByProjectKey(String projectKey);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Project p where p.id = :id")
     Optional<Project> findLockedById(@Param("id") Long id);

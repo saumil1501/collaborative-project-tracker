@@ -6,7 +6,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "issues")
+@Table(name = "issues", uniqueConstraints = @UniqueConstraint(columnNames = {"project_id", "issue_number"}))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -31,6 +31,20 @@ public class Issue {
     private IssuePriority priority = IssuePriority.MEDIUM;
 
     private LocalDate dueDate;
+
+    @Column(name = "issue_number")
+    private Long issueNumber;
+
+    @Enumerated(EnumType.STRING)
+    private IssueType type = IssueType.TASK;
+
+    private Integer storyPoints;
+
+    @Column(length = 500)
+    private String labels;
+
+    public IssueType getType() { return type != null ? type : IssueType.TASK; }
+    public String getIssueKey() { return project.getDisplayKey() + "-" + (issueNumber != null ? issueNumber : id); }
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "project_id", nullable = false)

@@ -15,6 +15,13 @@ public class Project {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "project_key", unique = true, length = 10, updatable = false)
+    private String projectKey;
+
+    private Long nextIssueNumber;
+
+    public String getDisplayKey() { return projectKey != null ? projectKey : "PRJ" + id; }
+
     @Column(nullable = false)
     private String name;
 

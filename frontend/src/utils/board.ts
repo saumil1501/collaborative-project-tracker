@@ -4,6 +4,7 @@ export type Issue = {
   id: number; title: string; description: string | null; status: Status;
   priority: Priority; assigneeId: number | null; assigneeName: string | null;
   dueDate: string | null; createdAt: string;
+  issueKey?: string; type?: "BUG" | "TASK" | "STORY"; storyPoints?: number | null; labels?: string[];
 };
 
 export function canManageIssues(memberRole: string | undefined) {
@@ -28,7 +29,7 @@ export function filterIssues(issues: Issue[], filters: {
   query: string; priority: string; assignee: string; mineOnly: boolean; currentUserId: number;
 }) {
   return issues.filter(issue =>
-    issue.title.toLowerCase().includes(filters.query.trim().toLowerCase()) &&
+    ` ${issue.title} ${issue.issueKey || ""} ${(issue.labels || []).join(" ")}`.toLowerCase().includes(filters.query.trim().toLowerCase()) &&
     (!filters.priority || issue.priority === filters.priority) &&
     (!filters.assignee || (filters.assignee === "unassigned" ? issue.assigneeId === null : issue.assigneeId === Number(filters.assignee))) &&
     (!filters.mineOnly || issue.assigneeId === filters.currentUserId)

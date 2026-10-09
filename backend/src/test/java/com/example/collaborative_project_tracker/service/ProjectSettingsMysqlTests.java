@@ -40,6 +40,52 @@ class ProjectSettingsMysqlTests {
     }
 
     @Test
+    void legacyIssuesKeepKeysAndNewNumbersStartAboveExistingIds() {
+        AppUser owner = user("Legacy owner");
+        Project project = new Project(); project.setName("Legacy verification"); project.setOwner(owner);
+        projects.saveAndFlush(project);
+        ProjectMembership membership = new ProjectMembership(); membership.setProject(project); membership.setUser(owner); membership.setRole(ProjectRole.OWNER);
+        memberships.save(membership);
+        Issue legacy = new Issue(); legacy.setProject(project); legacy.setTitle("Legacy issue"); legacy.setType(null);
+        issues.saveAndFlush(legacy);
+        Long projectId = project.getId(), legacyId = legacy.getId();
+        entityManager.clear();
+        var original = issueService.list(projectId, owner.getEmail()).getFirst();
+        assertEquals("PRJ" + projectId + "-" + legacyId, original.issueKey());
+        assertEquals(IssueType.TASK, original.type()); assertTrue(original.labels().isEmpty()); assertNull(original.storyPoints());
+        var added = issueService.create(projectId, new IssueRequest("New issue", null, null, null, null), owner.getEmail());
+        assertEquals("PRJ" + projectId + "-" + (legacyId + 1), added.issueKey());
+        entityManager.flush(); entityManager.clear();
+        assertEquals(legacyId + 2, projects.findById(projectId).orElseThrow().getNextIssueNumber());
+        assertEquals(original.issueKey(), issueService.list(projectId, owner.getEmail()).stream().filter(issue -> issue.id().equals(legacyId)).findFirst().orElseThrow().issueKey());
+    }
+
+    @Test
+    void structuredIssuesPersistWithStableKeysAndOwnerOnlyMetadata() {
+        AppUser owner = user("Structured owner"), member = user("Structured member");
+        String key = "T" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).chars().mapToObj(value -> String.valueOf((char) ('A' + Character.digit(value, 16)))).collect(java.util.stream.Collectors.joining());
+        var project = projectService.create(new CreateProjectRequest("Structured verification", null, key), owner.getEmail());
+        membershipService.addMember(project.id(), new AddMemberRequest(member.getEmail()), owner.getEmail());
+        var first = issueService.create(project.id(), new IssueRequest("First", null, null, member.getId(), null,
+                IssueType.BUG, 8, java.util.List.of("Frontend", "auth")), owner.getEmail());
+        assertEquals(key + "-1", first.issueKey());
+        entityManager.flush(); entityManager.clear();
+        var loaded = issueService.list(project.id(), member.getEmail()).getFirst();
+        assertEquals(IssueType.BUG, loaded.type()); assertEquals(8, loaded.storyPoints());
+        assertEquals(java.util.List.of("auth", "frontend"), loaded.labels());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+            () -> issueService.update(project.id(), first.id(), new IssueRequest("Forbidden", null, null, member.getId(), null,
+                IssueType.STORY, 13, java.util.List.of("changed")), member.getEmail())).getStatusCode());
+        issueService.updateStatus(project.id(), first.id(), new UpdateIssueStatusRequest(IssueStatus.DONE), member.getEmail());
+        settings.updateProject(project.id(), new CreateProjectRequest("Renamed project", null), owner.getEmail());
+        assertEquals(first.issueKey(), issueService.list(project.id(), owner.getEmail()).getFirst().issueKey());
+        issueService.delete(project.id(), first.id(), owner.getEmail());
+        assertEquals(key + "-2", issueService.create(project.id(), new IssueRequest("Next", null, null, null, null), owner.getEmail()).issueKey());
+        entityManager.flush(); entityManager.clear();
+        assertEquals(3L, projects.findById(project.id()).orElseThrow().getNextIssueNumber());
+    }
+
+    @Test
     void liveNotificationsPersistForTheRightPeopleAndRespectReadOwnershipAndAccess() {
         AppUser owner = user("Notification owner"), member = user("Notification assignee"), other = user("Notification commenter");
         Long projectId = projectService.create(new CreateProjectRequest("Notification verification", null), owner.getEmail()).id();

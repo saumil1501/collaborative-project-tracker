@@ -13,6 +13,7 @@ type Project = {
   description: string | null;
   ownerId: number;
   createdAt: string;
+  projectKey?: string;
 };
 
 type ProjectDashboardProps = {
@@ -29,6 +30,7 @@ export default function ProjectDashboard({
   const [projects, setProjects] = useState<Project[]>([]);
   const [query, setQuery] = useState("");
   const [summaries, setSummaries] = useState<Record<number, { todo: number; progress: number; done: number } | null>>({});
+  const [projectKey, setProjectKey] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -85,7 +87,7 @@ export default function ProjectDashboard({
   }, [projects]);
 
   const scopedProjects = projects.filter(project => ownershipFilter === "all" || (ownershipFilter === "owned" ? project.ownerId === currentUserId : project.ownerId !== currentUserId));
-  const visibleProjects = scopedProjects.filter(project => `${project.name} ${project.description || ""}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const visibleProjects = scopedProjects.filter(project => `${project.name} ${project.projectKey || `PRJ${project.id}`} ${project.description || ""}`.toLowerCase().includes(query.trim().toLowerCase()));
   const statsReady = scopedProjects.every(project => Object.hasOwn(summaries, project.id) && summaries[project.id] !== null);
   const totals = scopedProjects.reduce((total, project) => {
     const summary = summaries[project.id];
@@ -109,16 +111,19 @@ export default function ProjectDashboard({
     try {
       await api.post("/projects", {
         name: name.trim(),
+        projectKey: projectKey || null,
         description: description.trim(),
       });
 
       setName("");
+      setProjectKey("");
       setDescription("");
       setShowForm(false);
 
       await fetchProjects();
-    } catch {
-      setError("Failed to create project.");
+    } catch (error) {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      setError(status === 409 ? "That project key is already in use. Choose another key." : "Failed to create project.");
     } finally {
       setCreating(false);
     }
@@ -240,6 +245,7 @@ export default function ProjectDashboard({
             />
           </div>
 
+          <div><label htmlFor="project-key" className="mb-2 block text-sm text-slate-300">Project key</label><input id="project-key" value={projectKey} onChange={event => setProjectKey(event.target.value.toUpperCase())} pattern="[A-Z]{2,10}" maxLength={10} placeholder="WEB" className="w-full rounded-lg border border-slate-700 bg-slate-800 p-3" /><p className="mt-2 text-xs text-slate-400">Optional, unique and permanent. Use 2–10 letters, or leave blank for an automatic key.</p></div>
           <div>
             <label
               htmlFor="project-description"
@@ -309,7 +315,7 @@ export default function ProjectDashboard({
               const percent = count && summary ? Math.round(summary.done / count * 100) : 0;
               const status = !summary ? "Unavailable" : !count ? "No issues" : summary.done === count ? "Completed" : summary.progress || summary.done ? "In progress" : "To do";
               return <tr key={project.id}>
-                <td data-label="Project"><div className="project-identity"><span className="project-icon"><FolderKanban size={21} /></span><div><h3>{project.name}</h3><p>{project.description || "No description"}</p><small>{isOwner ? "Owner" : "Member"} · Created {new Date(project.createdAt).toLocaleDateString()}</small></div></div></td>
+                <td data-label="Project"><div className="project-identity"><span className="project-icon"><FolderKanban size={21} /></span><div><h3>{project.name}</h3><p>{project.description || "No description"}</p><small>{project.projectKey || `PRJ${project.id}`} · {isOwner ? "Owner" : "Member"} · Created {new Date(project.createdAt).toLocaleDateString()}</small></div></div></td>
                 <td data-label="Issues"><span className="issue-count">{count ?? "—"}</span></td>
                 <td data-label="Members"><ProjectMembers projectId={project.id} isOwner={isOwner} /></td>
                 <td data-label="Status"><span className={`project-status ${status === "Completed" ? "is-complete" : status === "In progress" ? "is-progress" : ""}`}><span />{status}</span></td>

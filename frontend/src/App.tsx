@@ -5,6 +5,14 @@ import Notifications from "./components/Notifications";
 import type { NotificationTarget } from "./components/Notifications";
 import { FolderKanban, LayoutGrid, Users, Layers3, LogOut } from "lucide-react";
 
+function readIssueLink(): NotificationTarget | null {
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const projectId = Number(params.get("project"));
+  const issueId = Number(params.get("issue"));
+  return Number.isSafeInteger(projectId) && projectId > 0 && Number.isSafeInteger(issueId) && issueId > 0
+    ? { projectId, issueId, requestId: Date.now() } : null;
+}
+
 type User = {
   id: number;
   name: string;
@@ -19,7 +27,7 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [notificationTarget, setNotificationTarget] = useState<NotificationTarget | null>(null);
+  const [notificationTarget, setNotificationTarget] = useState<NotificationTarget | null>(readIssueLink);
   const [workspace, setWorkspace] = useState({ filter: "all" as "all" | "owned" | "shared", revision: 0 });
 
   useEffect(() => {
@@ -28,6 +36,12 @@ export default function App() {
       .then(({ data }) => setUser(data))
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const onHashChange = () => setNotificationTarget(readIssueLink());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {

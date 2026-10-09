@@ -39,6 +39,8 @@ public class ProjectSettingsService {
     public ProjectResponse updateProject(Long projectId, CreateProjectRequest request, String email) {
         Project project = lockProject(projectId);
         authorization.requireOwner(projectId, email);
+        if (request.projectKey() != null && !request.projectKey().equals(project.getDisplayKey()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Project keys cannot be changed");
         project.setName(request.name().trim());
         project.setDescription(request.description() == null ? null : request.description().trim());
         return projectResponse(project);
@@ -146,6 +148,6 @@ public class ProjectSettingsService {
                 request.getStatus(), request.getRequestedAt(), request.getResolvedAt());
     }
     private ProjectResponse projectResponse(Project project) {
-        return new ProjectResponse(project.getId(), project.getName(), project.getDescription(), project.getOwner().getId(), project.getCreatedAt());
+        return new ProjectResponse(project.getId(), project.getName(), project.getDescription(), project.getOwner().getId(), project.getCreatedAt(), project.getDisplayKey());
     }
 }

@@ -44,8 +44,18 @@ public class ProjectService {
         project.setName(request.name().trim());
         project.setDescription(request.description());
         project.setOwner(owner);
+        if (request.projectKey() != null) {
+            if (!request.projectKey().matches("[A-Z]{2,10}")) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid project key");
+            if (projects.existsByProjectKey(request.projectKey())) throw new ResponseStatusException(HttpStatus.CONFLICT, "Project key is already in use");
+            project.setProjectKey(request.projectKey());
+        }
+        project.setNextIssueNumber(1L);
 
-        Project saved = projects.save(project);
+        Project saved;
+        try { saved = projects.saveAndFlush(project); }
+        catch (org.springframework.dao.DataIntegrityViolationException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Project key is already in use", exception);
+        }
 
         ProjectMembership membership = new ProjectMembership();
         membership.setProject(saved);
@@ -100,7 +110,7 @@ public class ProjectService {
                 project.getName(),
                 project.getDescription(),
                 project.getOwner().getId(),
-                project.getCreatedAt()
+                project.getCreatedAt(), project.getDisplayKey()
         );
     }
 }

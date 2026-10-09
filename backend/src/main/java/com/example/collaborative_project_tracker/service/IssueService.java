@@ -53,6 +53,11 @@ public class IssueService {
 
         Issue issue = new Issue();
         issue.setProject(project);
+        Long next = project.getNextIssueNumber();
+        if (next == null) next = issues.highestIssueNumber(projectId) + 1;
+        issue.setIssueNumber(next);
+        project.setNextIssueNumber(next + 1);
+        applyMetadata(issue, request, email, false);
         issue.setTitle(request.title().trim());
         issue.setDescription(request.description());
         issue.setPriority(request.priority() != null
@@ -123,6 +128,7 @@ public class IssueService {
         if (!Objects.equals(issue.getAssignee() != null ? issue.getAssignee().getId() : null, request.assigneeId())) {
             activityService.record(issue, email, ActivityField.ASSIGNEE, assigneeLabel(issue.getAssignee()), assigneeLabel(assignee));
         }
+        applyMetadata(issue, request, email, true);
         issue.setTitle(request.title().trim());
         issue.setDescription(request.description());
         issue.setPriority(priority);
@@ -153,6 +159,23 @@ public class IssueService {
                     "Only the project owner can create, change or delete issues");
         }
         return project;
+    }
+
+    private void applyMetadata(Issue issue, IssueRequest request, String email, boolean record) {
+        if (request.storyPoints() != null && !List.of(1, 2, 3, 5, 8, 13).contains(request.storyPoints()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Story points must be 1, 2, 3, 5, 8 or 13");
+        var labels = request.labels() != null ? request.labels() : List.<String>of();
+        if (labels.size() > 10 || labels.stream().anyMatch(label -> label == null || !label.matches("[a-zA-Z0-9][a-zA-Z0-9_-]{0,29}")))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Use up to 10 labels, each 1-30 letters, digits, hyphens or underscores");
+        String normalized = labels.stream().map(label -> label.toLowerCase(java.util.Locale.ROOT)).distinct().sorted().collect(java.util.stream.Collectors.joining(","));
+        String storedLabels = normalized.isEmpty() ? null : normalized;
+        IssueType type = request.type() != null ? request.type() : IssueType.TASK;
+        if (record) {
+            activityService.record(issue, email, ActivityField.TYPE, issue.getType().name(), type.name());
+            activityService.record(issue, email, ActivityField.STORY_POINTS, Objects.toString(issue.getStoryPoints(), null), Objects.toString(request.storyPoints(), null));
+            activityService.record(issue, email, ActivityField.LABELS, issue.getLabels(), storedLabels);
+        }
+        issue.setType(type); issue.setStoryPoints(request.storyPoints()); issue.setLabels(storedLabels);
     }
 
     private String assigneeLabel(AppUser user) {
@@ -198,7 +221,8 @@ public class IssueService {
                 assignee != null ? assignee.getId() : null,
                 assignee != null ? assignee.getName() : null,
                 issue.getDueDate(),
-                issue.getCreatedAt()
+                issue.getCreatedAt(), issue.getIssueKey(), issue.getType(), issue.getStoryPoints(),
+                issue.getLabels() != null ? List.of(issue.getLabels().split(",")) : List.of()
         );
     }
 }

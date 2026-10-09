@@ -7,5 +7,6 @@ public record ProjectResponse(
         String name,
         String description,
         Long ownerId,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        String projectKey
 ) {}

@@ -38,6 +38,17 @@ A full-stack, multi-user project management application built using **Spring Boo
 - Update issue statuses: `TODO`, `IN_PROGRESS`, `DONE`. Only the project owner or current assignee can change status; unassigned issues require the owner. Other members' status menus and drag controls are disabled, and the API enforces the same rule.
 - Validate that assignees belong to the project
 
+### Structured Issues
+- Optional permanent project keys: 2-10 uppercase letters, globally unique; automatic keys use `PRJ` plus the project ID
+- Readable issue keys such as `WEB-1`, using a transactionally locked per-project counter; deleting issues never reuses numbers
+- Existing projects retain generated keys and existing issues retain their original IDs as issue numbers; the first new issue starts above the highest existing number
+- Owner-managed Bug, Task, and Story types, optional story points (1, 2, 3, 5, 8, 13), and up to 10 labels
+- Labels use 1-30 letters, digits, hyphens or underscores; normalized to lowercase, deduplicated and sorted
+- Metadata changes appear in activity history; owner/assignee status permissions remain unchanged
+- Filter the board by type and search titles, issue keys, or labels
+- Open a shareable issue URL such as `/#project=1&issue=2`; login and project membership are still required, and stale targets show an error
+- Existing rows need no destructive backfill. Hibernate's current `ddl-auto=update` adds nullable metadata columns and unique key constraints at startup; Flyway remains a future production improvement
+
 ### Kanban Board
 - Three-column board: To Do, In Progress, Done
 - View issues grouped by status
@@ -121,7 +132,7 @@ Spring Security handles authentication and session management. Authorization is 
 
 ## Database Design
 
-The application uses seven core domain entities:
+The application uses eight core domain entities:
 
 | Entity | Description |
 |---|---|
@@ -392,3 +403,5 @@ collaborative-project-tracker/
 ## Author
 
 Developed as a full-stack software engineering project to explore REST API development, relational database design, session-based authentication, authorization, and collaborative task management.
+
+Structured issue UI checks: build the frontend, then run `node tests/structured-issues.browser.mjs` with `BOARD_TEST_STATIC=1` and Playwright available. Tests use mock API data. `ActivityServiceTests` covers metadata validation, normalization, audit changes and legacy numbering; the opt-in `ProjectSettingsMysqlTests` also verifies persistence, stable keys, owner-only metadata and number preservation after deletion.

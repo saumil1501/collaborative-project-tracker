@@ -13,5 +13,9 @@ public record IssueResponse(
     Long assigneeId,
     String assigneeName,
     LocalDate dueDate,
-    LocalDateTime createdAt
+    LocalDateTime createdAt,
+    String issueKey,
+    IssueType type,
+    Integer storyPoints,
+    java.util.List<String> labels
 ) {}

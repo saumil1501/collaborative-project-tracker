@@ -53,6 +53,43 @@ class ActivityServiceTests {
     }
 
     @Test
+    void structuredFieldsAreNormalizedAndAudited() {
+        project.setProjectKey("WEB");
+        var response = issueService.update(1L, 2L, new IssueRequest("Original", "Old details", IssuePriority.MEDIUM, null, null,
+                IssueType.BUG, 5, List.of("Frontend", "frontend", "auth")), actor.getEmail());
+        assertEquals("WEB-2", response.issueKey());
+        assertEquals(IssueType.BUG, response.type()); assertEquals(5, response.storyPoints());
+        assertEquals(List.of("auth", "frontend"), response.labels());
+        assertEquals(Set.of(ActivityField.TYPE, ActivityField.STORY_POINTS, ActivityField.LABELS),
+                new HashSet<>(recorded.stream().map(IssueActivity::getField).toList()));
+        recorded.clear();
+        issueService.update(1L, 2L, new IssueRequest("Original", "Old details", IssuePriority.MEDIUM, null, null,
+                IssueType.BUG, 5, List.of("frontend", "AUTH")), actor.getEmail());
+        assertTrue(recorded.isEmpty(), "Equivalent label sets must not generate noise");
+        issueService.update(1L, 2L, new IssueRequest("Original", "Old details", IssuePriority.MEDIUM, null, null,
+                IssueType.STORY, null, List.of()), actor.getEmail());
+        assertNull(issue.getStoryPoints()); assertNull(issue.getLabels());
+    }
+
+    @Test
+    void rejectsInvalidEstimatesAndLabels() {
+        for (Integer points : List.of(0, 4, 20, -1)) assertEquals(HttpStatus.BAD_REQUEST,
+            assertThrows(ResponseStatusException.class, () -> issueService.update(1L, 2L,
+                new IssueRequest("Original", "Old details", IssuePriority.MEDIUM, null, null, IssueType.TASK, points, List.of()), actor.getEmail())).getStatusCode());
+        assertThrows(ResponseStatusException.class, () -> issueService.create(1L,
+            new IssueRequest("Original", null, null, null, null, IssueType.TASK, 3, List.of("bad,label")), actor.getEmail()));
+    }
+
+    @Test
+    void numberingReservesLegacyIdsAndNeverReusesDeletedNumbers() {
+        when(issues.highestIssueNumber(1L)).thenReturn(20L);
+        assertEquals("PRJ1-21", issueService.create(1L, new IssueRequest("First", null, null, null, null), actor.getEmail()).issueKey());
+        assertEquals("PRJ1-22", issueService.create(1L, new IssueRequest("Second", null, null, null, null), actor.getEmail()).issueKey());
+        verify(issues, times(1)).highestIssueNumber(1L);
+        assertEquals(23L, project.getNextIssueNumber());
+    }
+
+    @Test
     void creationRecordsAuthenticatedActorAndTitle() {
         issueService.create(1L, new IssueRequest(" New issue ", null, null, null, null), actor.getEmail());
         assertEquals(1, recorded.size());
