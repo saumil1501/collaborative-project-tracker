@@ -1,0 +1,104 @@
+// Run against the Vite dev server with Playwright installed or available via NODE_PATH.
+import { createRequire } from "node:module";
+import assert from "node:assert/strict";
+const { chromium } = createRequire(import.meta.url)("playwright");
+const browser = await chromium.launch({ headless: true, channel: process.env.BOARD_TEST_BROWSER || "chrome" });
+const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+const errors = [];
+page.on("pageerror", error => errors.push(error.message));
+const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+const dueDate = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+let issues = [
+  { id: 1, title: "Refine the workspace", description: "Bring the board, filters, and details together into a clear team workspace.", status: "TODO", priority: "HIGH", assigneeId: 7, assigneeName: "Sam Lee", dueDate, createdAt: "2026-10-01T12:00:00" },
+  { id: 2, title: "Review mobile layout", description: "Check the board on small screens.", status: "IN_PROGRESS", priority: "MEDIUM", assigneeId: 8, assigneeName: "Alex Kim", dueDate: null, createdAt: "2026-10-01T12:00:00" },
+  { id: 3, title: "Define priorities", description: "Give every issue a clear next step.", status: "DONE", priority: "LOW", assigneeId: null, assigneeName: null, dueDate, createdAt: "2026-10-01T12:00:00" },
+];
+let failMove = false;
+let failSave = false;
+let failLoad = false;
+let nextId = 4;
+const members = [{ userId: 7, name: "Sam Lee", email: "sam@example.test", role: "OWNER" }, { userId: 8, name: "Alex Kim", email: "alex@example.test", role: "MEMBER" }];
+await page.route("**/api/**", async route => {
+  const request = route.request(); const path = new URL(request.url()).pathname; const method = request.method();
+  const reply = (data, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
+  if (path.endsWith("/csrf")) return reply({ token: "test-token" });
+  if (path.endsWith("/me")) return reply({ id: 7, name: "Sam Lee", email: "sam@example.test" });
+  if (path.endsWith("/members")) return reply(members);
+  if (path === "/api/projects") return reply([{ id: 1, name: "Product launch", description: "Build something worth sharing.", ownerId: 7, createdAt: "2026-10-01T12:00:00" }]);
+  if (path.endsWith("/issues") && method === "GET") return reply(failLoad ? {} : issues, failLoad ? 500 : 200);
+  if (path.endsWith("/issues") && method === "POST") {
+    const payload = request.postDataJSON(); const issue = { ...payload, id: nextId++, status: "TODO", assigneeName: members.find(member => member.userId === payload.assigneeId)?.name ?? null, createdAt: "2026-10-09T12:00:00" }; issues.unshift(issue); return reply(issue, 201);
+  }
+  const id = Number(path.match(/issues\/(\d+)/)?.[1]); const issue = issues.find(item => item.id === id);
+  if (method === "PATCH") { if (failMove) return reply({}, 500); Object.assign(issue, request.postDataJSON()); return reply(issue); }
+  if (method === "PUT") { if (failSave) return reply({}, 500); Object.assign(issue, request.postDataJSON()); issue.assigneeName = members.find(member => member.userId === issue.assigneeId)?.name ?? null; return reply(issue); }
+  if (method === "DELETE") { issues = issues.filter(item => item.id !== id); return route.fulfill({ status: 204 }); }
+  return reply({}, 404);
+});
+const waitFor = async (condition) => { for (let i = 0; i < 50; i++) { if (await condition()) return; await page.waitForTimeout(100); } throw new Error("Condition did not become true"); };
+try {
+  await page.goto(process.env.BOARD_TEST_URL || "http://127.0.0.1:5173");
+  await page.getByRole("button", { name: "Open Board" }).click();
+  await page.getByRole("button", { name: /Refine the workspace/ }).waitFor();
+  assert.equal(await page.locator("article").count(), 3);
+  assert.equal(await page.getByText(/· Overdue/).count(), 1);
+  await page.screenshot({ path: "tests/board-desktop.png", fullPage: true });
+
+  await page.getByRole("button", { name: "Assigned to me", exact: true }).click();
+  assert.equal(await page.locator("article").count(), 1);
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.getByRole("textbox", { name: "Search issue titles" }).fill("does not exist");
+  assert.equal(await page.getByText("No matching issues", { exact: true }).count(), 3);
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.getByRole("combobox", { name: "Filter by priority" }).selectOption("LOW");
+  assert.equal(await page.locator("article").count(), 1);
+  await page.getByRole("button", { name: "Clear filters" }).click();
+
+  await page.locator("article").filter({ hasText: "Refine the workspace" }).dragTo(page.getByRole("region", { name: "In progress", exact: true }));
+  await waitFor(async () => (await page.getByRole("combobox", { name: "Status for Refine the workspace" }).inputValue()) === "IN_PROGRESS" && !(await page.getByRole("combobox", { name: "Status for Refine the workspace" }).isDisabled()));
+  assert.equal(issues[0].status, "IN_PROGRESS");
+  failMove = true;
+  await page.getByRole("combobox", { name: "Status for Refine the workspace" }).selectOption("DONE");
+  await page.getByRole("alert").filter({ hasText: "returned" }).waitFor();
+  assert.equal(await page.getByRole("combobox", { name: "Status for Refine the workspace" }).inputValue(), "IN_PROGRESS");
+  failMove = false;
+
+  await page.getByRole("button", { name: /Refine the workspace/ }).click();
+  assert.equal(await page.getByRole("dialog").isVisible(), true);
+  await page.getByRole("textbox", { name: "Title", exact: false }).fill("Refined workspace");
+  failSave = true;
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await page.getByRole("alert").filter({ hasText: "Your changes are still here" }).waitFor();
+  assert.equal(await page.getByRole("textbox", { name: "Title", exact: false }).inputValue(), "Refined workspace");
+  failSave = false;
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await page.getByRole("button", { name: /Refined workspace/ }).waitFor();
+
+  await page.getByRole("button", { name: "New issue", exact: true }).click();
+  await page.getByRole("textbox", { name: "Title", exact: false }).fill("Portfolio walkthrough");
+  await page.getByRole("button", { name: "Create issue", exact: true }).click();
+  await page.getByRole("button", { name: /Portfolio walkthrough/ }).click();
+  await page.getByRole("button", { name: "Delete issue", exact: true }).click();
+  await page.getByRole("button", { name: "Keep issue" }).click();
+  await page.getByRole("button", { name: "Delete issue", exact: true }).click();
+  await page.getByRole("button", { name: "Yes, delete issue" }).click();
+  await waitFor(async () => !(await page.getByRole("dialog").count()));
+  assert.equal(issues.length, 3);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await page.screenshot({ path: "tests/board-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: /Refined workspace/ }).click();
+  await page.screenshot({ path: "tests/board-panel.png", fullPage: true });
+  await page.keyboard.press("Escape");
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  await page.getByRole("button", { name: "All projects" }).click();
+  failLoad = true;
+  await page.getByRole("button", { name: "Open Board" }).click();
+  await page.getByRole("alert").filter({ hasText: "load this board" }).waitFor();
+  failLoad = false;
+  await page.getByRole("button", { name: "Reload board" }).click();
+  await page.getByRole("button", { name: /Refined workspace/ }).waitFor();
+  assert.deepEqual(errors, []);
+  console.log("Browser checks passed: filters, drag-and-drop persistence, rollback, save recovery, create/edit/delete, mobile overflow, Escape, and load retry.");
+} finally { await browser.close(); }

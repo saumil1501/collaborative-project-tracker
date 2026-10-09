@@ -30,7 +30,11 @@ export default function ProjectMembers({ projectId, isOwner }: Props) {
   }
 
   useEffect(() => {
-    void fetchMembers();
+    const controller = new AbortController();
+    api.get<Member[]>(`/projects/${projectId}/members`, { signal: controller.signal })
+      .then(({ data }) => { if (!controller.signal.aborted) setMembers(data); })
+      .catch(() => { if (!controller.signal.aborted) setError("Unable to load members"); });
+    return () => controller.abort();
   }, [projectId]);
 
   async function addMember(e: React.FormEvent<HTMLFormElement>) {

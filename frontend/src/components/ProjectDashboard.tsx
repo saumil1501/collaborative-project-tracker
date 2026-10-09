@@ -46,7 +46,12 @@ export default function ProjectDashboard({
   }
 
   useEffect(() => {
-    void fetchProjects();
+    const controller = new AbortController();
+    api.get<Project[]>("/projects", { signal: controller.signal })
+      .then(({ data }) => { if (!controller.signal.aborted) setProjects(data); })
+      .catch(() => { if (!controller.signal.aborted) setError("Failed to load projects."); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
   }, []);
 
   // Create a new project
@@ -103,8 +108,10 @@ export default function ProjectDashboard({
   if (selectedProject) {
     return (
       <KanbanBoard
+        key={selectedProject.id}
         projectId={selectedProject.id}
         projectName={selectedProject.name}
+        currentUserId={currentUserId}
         onBack={() => {
           setSelectedProject(null);
           void fetchProjects();

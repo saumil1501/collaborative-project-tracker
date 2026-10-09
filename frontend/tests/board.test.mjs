@@ -1,0 +1,36 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { filterIssues, initials, isOverdue, summarizeIssues } from "../src/utils/board.ts";
+
+const today = new Date(2026, 9, 9, 23, 59);
+const base = { id: 1, title: "Review design", description: null, status: "TODO", priority: "HIGH", assigneeId: 7, assigneeName: "Sam Lee", dueDate: "2026-10-09", createdAt: "2026-10-01T12:00:00" };
+const issues = [base, { ...base, id: 2, title: "Ship board", status: "DONE", dueDate: "2026-10-01", assigneeId: 8 }, { ...base, id: 3, title: "Write notes", dueDate: "2026-10-08", priority: "LOW", assigneeId: null }];
+const filters = { query: "", priority: "", assignee: "", mineOnly: false, currentUserId: 7 };
+
+test("due today remains on time; only unfinished issues before today are overdue", () => {
+  assert.equal(isOverdue(base, today), false);
+  assert.equal(isOverdue(issues[1], today), false);
+  assert.equal(isOverdue(issues[2], today), true);
+  assert.equal(isOverdue({ ...base, dueDate: null }, today), false);
+  assert.equal(isOverdue({ ...base, dueDate: "2026-10-10" }, today), false);
+});
+test("search is case insensitive and combines with assignee and priority", () => {
+  assert.deepEqual(filterIssues(issues, { ...filters, query: " REVIEW ", priority: "HIGH", assignee: "7" }).map(issue => issue.id), [1]);
+  assert.equal(filterIssues(issues, { ...filters, query: "review", priority: "LOW" }).length, 0);
+});
+test("unassigned and assigned-to-me filters have distinct, intersecting semantics", () => {
+  assert.deepEqual(filterIssues(issues, { ...filters, assignee: "unassigned" }).map(issue => issue.id), [3]);
+  assert.deepEqual(filterIssues(issues, { ...filters, mineOnly: true }).map(issue => issue.id), [1]);
+  assert.equal(filterIssues(issues, { ...filters, mineOnly: true, assignee: "8" }).length, 0);
+  assert.deepEqual(filterIssues(issues, filters), issues);
+});
+test("summary counts completed issues and excludes them from overdue counts", () => {
+  assert.deepEqual(summarizeIssues(issues, today), { total: 3, completed: 1, overdue: 1 });
+  assert.deepEqual(summarizeIssues([], today), { total: 0, completed: 0, overdue: 0 });
+});
+test("avatar initials handle whitespace, single names, and unassigned issues", () => {
+  assert.equal(initials(" Sam   Lee "), "SL");
+  assert.equal(initials("Sam"), "S");
+  assert.equal(initials(null), "—");
+  assert.equal(initials("   "), "—");
+});

@@ -38,6 +38,11 @@ A full-stack, multi-user project management application built using **Spring Boo
 - Update issue status directly from the board
 - Manage assignments, priorities, and due dates
 - Persist changes in MySQL
+- Drag cards between columns with automatic rollback if saving fails
+- Search issue titles and filter by assignee, priority, or "Assigned to me"
+- Open issue details in an accessible side panel to create, edit, or delete issues
+- View total, completed, and overdue counts, with overdue badges on unfinished issues
+- Responsive dark layout with loading placeholders, empty states, and save feedback
 
 ## Tech Stack
 
@@ -243,14 +248,20 @@ Vite proxies `/api` requests to the Spring Boot backend.
 - Users cannot assign issues to individuals outside the project.
 - Unauthorized project access is rejected by the backend.
 
+## Frontend Verification
+
+From `frontend`, run `npm test`, `npm run lint`, and `npm run build`.
+The logic tests use Node.js 22.6 or newer for TypeScript type stripping.
+
+An optional browser check in `frontend/tests/board.browser.mjs` uses Playwright and an installed Chrome browser. Start the Vite dev server, make Playwright available locally or via `NODE_PATH`, then run `node tests/board.browser.mjs` from `frontend`. Set `BOARD_TEST_BROWSER=msedge` to use Edge, or `BOARD_TEST_URL` to override the default `http://127.0.0.1:5173`. This check uses mock API responses and covers filtering, card moves, failed-move rollback, failed-save recovery, issue creation/editing/deletion, mobile overflow, panel dismissal, and load retry. It does not verify the backend or MySQL persistence.
+
 ## Future Enhancements
 
-- Drag-and-drop Kanban interactions
 - Issue comments and activity history
-- Advanced search, filtering, and pagination
+- Server-side advanced search, filtering, and pagination
 - Optimistic locking for concurrent issue updates
 - Flyway database migrations
-- Automated integration tests and CI/CD
+- Backend integration tests and CI/CD
 - Docker Compose configuration
 - Deployment to a cloud platform
 

@@ -58,9 +58,9 @@ export default function App() {
 
   if (user) {
     return (
-      <main className="min-h-screen bg-slate-950 text-white p-10">
-        <div className="mx-auto max-w-4xl">
-          <div className="flex justify-between items-center">
+      <main className="min-h-screen bg-slate-950 text-white p-4 sm:p-8 lg:p-10">
+        <div className="mx-auto max-w-7xl">
+          <div className="flex flex-wrap justify-between items-center gap-4 border-b border-slate-800 pb-6">
             <div>
               <h1 className="text-3xl font-bold">
                 Welcome, {user.name}
