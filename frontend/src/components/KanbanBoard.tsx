@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { ArrowLeft, CalendarDays, Check, Circle, CircleCheck, Clock3, GripVertical, Plus, Search, Trash2, X } from "lucide-react";
 import api from "../services/api";
+import IssueComments from "./IssueComments";
 import { filterIssues, initials, isOverdue, summarizeIssues } from "../utils/board";
 import type { Issue, Priority, Status } from "../utils/board";
 
@@ -32,6 +33,8 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
   const mutationLock = useRef(false);
   const [editor, setEditor] = useState<{ issue: Issue | null } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [commentsBusy, setCommentsBusy] = useState(false);
+  const panelBusy = saving || commentsBusy;
   const [editorError, setEditorError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [title, setTitle] = useState("");
@@ -100,6 +103,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
 
   async function saveIssue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (commentsBusy) return;
     if (!title.trim()) { setEditorError("Give your issue a title."); return; }
     if (mutationLock.current) return;
     mutationLock.current = true;
@@ -141,7 +145,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
   }
 
   async function deleteIssue() {
-    if (!editor?.issue || mutationLock.current) return;
+    if (!editor?.issue || mutationLock.current || commentsBusy) return;
     mutationLock.current = true;
     setSaving(true);
     setEditorError("");
@@ -205,19 +209,20 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
       </div>
       <p className="mt-4 text-xs text-slate-500">Drag cards between columns, or use a card's status menu. Select an issue to view and edit its details.</p>
 
-      {editor && <dialog ref={dialog} aria-labelledby="issue-panel-title" onCancel={event => { event.preventDefault(); if (!saving) setEditor(null); }} onClick={event => { if (event.target === event.currentTarget && !saving) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) setEditor(null); } }} className="issue-panel fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-full max-w-lg border-l border-slate-700 bg-slate-900 p-0 text-slate-100 shadow-2xl">
+      {editor && <dialog ref={dialog} aria-labelledby="issue-panel-title" onCancel={event => { event.preventDefault(); if (!panelBusy) setEditor(null); }} onClick={event => { if (event.target === event.currentTarget && !panelBusy) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) setEditor(null); } }} className="issue-panel fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-full max-w-lg border-l border-slate-700 bg-slate-900 p-0 text-slate-100 shadow-2xl">
         <form onSubmit={saveIssue} className="flex min-h-full flex-col">
-          <header className="flex items-center justify-between border-b border-slate-800 p-6"><div><p className="mb-1 text-xs text-indigo-400">{editor.issue ? `ISSUE-${editor.issue.id}` : "Make the next step clear"}</p><h3 id="issue-panel-title" className="text-xl font-semibold">{editor.issue ? "Issue details" : "New issue"}</h3></div><button type="button" disabled={saving} onClick={() => setEditor(null)} aria-label="Close issue details" className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-50"><X size={20} /></button></header>
-          <fieldset disabled={saving} className="flex-1 space-y-6 p-6 disabled:opacity-60">
+          <header className="flex items-center justify-between border-b border-slate-800 p-6"><div><p className="mb-1 text-xs text-indigo-400">{editor.issue ? `ISSUE-${editor.issue.id}` : "Make the next step clear"}</p><h3 id="issue-panel-title" className="text-xl font-semibold">{editor.issue ? "Issue details" : "New issue"}</h3></div><button type="button" disabled={panelBusy} onClick={() => setEditor(null)} aria-label="Close issue details" className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-50"><X size={20} /></button></header>
+          <fieldset disabled={panelBusy} className="flex-1 space-y-6 p-6 disabled:opacity-60">
             <div><label htmlFor="issue-title" className="mb-2 block text-sm font-medium">Title <span className="text-indigo-400">*</span></label><input ref={titleInput} id="issue-title" required maxLength={150} placeholder="What needs to happen?" value={title} onChange={event => setTitle(event.target.value)} className={fieldClass} /></div>
             <div><label htmlFor="issue-description" className="mb-2 block text-sm font-medium">Description</label><textarea id="issue-description" rows={7} maxLength={2000} placeholder="Add context, a checklist, or what success looks like…" value={description} onChange={event => setDescription(event.target.value)} className={`${fieldClass} resize-y`} /></div>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2"><div><label htmlFor="issue-priority" className="mb-2 block text-sm font-medium">Priority</label><select id="issue-priority" value={priority} onChange={event => setPriority(event.target.value as Priority)} className={fieldClass}><option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option></select></div><div><label htmlFor="issue-assignee" className="mb-2 block text-sm font-medium">Assignee</label><select id="issue-assignee" value={assigneeId} onChange={event => setAssigneeId(event.target.value)} className={fieldClass}><option value="">Unassigned</option>{members.map(member => <option key={member.userId} value={member.userId}>{member.name}</option>)}</select></div></div>
             <div><label htmlFor="issue-due" className="mb-2 block text-sm font-medium">Due date</label><input id="issue-due" type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} className={fieldClass} /><p className="mt-2 text-xs text-slate-500">Optional. Unfinished issues past this date are marked overdue.</p></div>
             {editor.issue && <div className="rounded-xl border border-slate-800 p-4 text-xs text-slate-400"><p>Status: <span className="text-slate-200">{columns.find(column => column.status === editor.issue?.status)?.label}</span></p><p className="mt-2">Created {new Date(editor.issue.createdAt).toLocaleDateString()}</p></div>}
           </fieldset>
+          {editor.issue && <IssueComments key={editor.issue.id} projectId={projectId} issueId={editor.issue.id} currentUserId={currentUserId} disabled={saving || confirmDelete} onBusyChange={setCommentsBusy} />}
           {editorError && <p role="alert" className="mx-6 mb-4 rounded-xl bg-rose-500/10 p-3 text-sm text-rose-300">{editorError}</p>}
-          {confirmDelete && <div className="mx-6 mb-5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4"><p className="text-sm font-medium text-rose-200">Delete this issue permanently?</p><p className="mt-1 text-xs text-rose-300/80">This action cannot be undone.</p><div className="mt-3 flex gap-3"><button type="button" disabled={saving} onClick={() => void deleteIssue()} className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold disabled:opacity-50">{saving ? "Deleting…" : "Yes, delete issue"}</button><button type="button" disabled={saving} onClick={() => setConfirmDelete(false)} className="text-xs text-slate-300">Keep issue</button></div></div>}
-          <footer className="sticky bottom-0 flex items-center gap-3 border-t border-slate-800 bg-slate-900 p-6">{editor.issue && <button type="button" disabled={saving} onClick={() => setConfirmDelete(true)} aria-label="Delete issue" className="mr-auto rounded-lg p-2 text-rose-400 hover:bg-rose-500/10 disabled:opacity-50"><Trash2 size={18} /></button>}<button type="button" disabled={saving} onClick={() => setEditor(null)} className="ml-auto rounded-xl px-3 py-2.5 text-sm text-slate-400 hover:text-white disabled:opacity-50">Cancel</button><button type="submit" disabled={saving || confirmDelete} className="rounded-xl bg-indigo-500 px-5 py-2.5 text-sm font-semibold hover:bg-indigo-400 disabled:opacity-50">{saving ? "Saving…" : editor.issue ? "Save changes" : "Create issue"}</button></footer>
+          {confirmDelete && <div className="mx-6 mb-5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4"><p className="text-sm font-medium text-rose-200">Delete this issue permanently?</p><p className="mt-1 text-xs text-rose-300/80">This action cannot be undone.</p><div className="mt-3 flex gap-3"><button type="button" disabled={panelBusy} onClick={() => void deleteIssue()} className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold disabled:opacity-50">{saving ? "Deleting…" : "Yes, delete issue"}</button><button type="button" disabled={panelBusy} onClick={() => setConfirmDelete(false)} className="text-xs text-slate-300">Keep issue</button></div></div>}
+          <footer className="sticky bottom-0 flex items-center gap-3 border-t border-slate-800 bg-slate-900 p-6">{editor.issue && <button type="button" disabled={panelBusy} onClick={() => setConfirmDelete(true)} aria-label="Delete issue" className="mr-auto rounded-lg p-2 text-rose-400 hover:bg-rose-500/10 disabled:opacity-50"><Trash2 size={18} /></button>}<button type="button" disabled={panelBusy} onClick={() => setEditor(null)} className="ml-auto rounded-xl px-3 py-2.5 text-sm text-slate-400 hover:text-white disabled:opacity-50">Cancel</button><button type="submit" disabled={panelBusy || confirmDelete} className="rounded-xl bg-indigo-500 px-5 py-2.5 text-sm font-semibold hover:bg-indigo-400 disabled:opacity-50">{saving ? "Saving…" : editor.issue ? "Save changes" : "Create issue"}</button></footer>
         </form>
       </dialog>}
     </section>

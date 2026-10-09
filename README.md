@@ -44,6 +44,13 @@ A full-stack, multi-user project management application built using **Spring Boo
 - View total, completed, and overdue counts, with overdue badges on unfinished issues
 - Responsive dark layout with loading placeholders, empty states, and save feedback
 
+### Issue Comments
+- Project members can read and add plain-text comments in the issue side panel
+- Only a comment's author can edit or delete it, including when another member owns the project
+- Comments appear oldest first with author names, timestamps, and an edited marker
+- Comment text must be nonblank and no longer than 2,000 characters
+- Deleting an issue or its project also deletes associated comments
+
 ## Tech Stack
 
 | Layer | Technologies |
@@ -97,6 +104,7 @@ The application uses five core domain entities:
 | Project | Stores project information and ownership |
 | ProjectMembership | Maps users to projects with OWNER/MEMBER roles |
 | Issue | Stores tasks, status, priority, assignee, and due date |
+| IssueComment | Stores issue discussion, authors, creation timestamps, and edit timestamps |
 
 ### Entity Relationships
 
@@ -150,6 +158,17 @@ A user can participate in multiple projects, and a project can have multiple mem
 | PUT | `/api/projects/{projectId}/issues/{issueId}` | Update issue |
 | PATCH | `/api/projects/{projectId}/issues/{issueId}/status` | Change status |
 | DELETE | `/api/projects/{projectId}/issues/{issueId}` | Delete issue |
+
+### Comments
+
+All comment routes require project membership and validate that the issue belongs to the project. Updates and deletion additionally require the authenticated user to be the comment's author.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/projects/{projectId}/issues/{issueId}/comments` | List comments oldest first |
+| POST | `/api/projects/{projectId}/issues/{issueId}/comments` | Add a comment using `{ "body": "Comment text" }` |
+| PUT | `/api/projects/{projectId}/issues/{issueId}/comments/{commentId}` | Edit your comment |
+| DELETE | `/api/projects/{projectId}/issues/{issueId}/comments/{commentId}` | Delete your comment |
 
 ## Getting Started
 
@@ -255,9 +274,14 @@ The logic tests use Node.js 22.6 or newer for TypeScript type stripping.
 
 An optional browser check in `frontend/tests/board.browser.mjs` uses Playwright and an installed Chrome browser. Start the Vite dev server, make Playwright available locally or via `NODE_PATH`, then run `node tests/board.browser.mjs` from `frontend`. Set `BOARD_TEST_BROWSER=msedge` to use Edge, or `BOARD_TEST_URL` to override the default `http://127.0.0.1:5173`. This check uses mock API responses and covers filtering, card moves, failed-move rollback, failed-save recovery, issue creation/editing/deletion, mobile overflow, panel dismissal, and load retry. It does not verify the backend or MySQL persistence.
 
+To run the browser check without a preview server, build the frontend first and set `BOARD_TEST_STATIC=1`. The check intercepts the page's requests and serves the local `dist` files and mock API data, including comment creation/editing/deletion, author-only controls, plain-text rendering, and failed-save recovery.
+
+From `backend`, run `./mvnw -Dtest=CommentServiceTests,CommentValidationTests test` (or `mvnw.cmd` on Windows) to check comment permissions, validation, and deletion cleanup without a database. These focused tests use mocks; MySQL persistence still requires an integration check.
+If Windows sandbox restrictions interfere with the forked test JVM, add `-DforkCount=0` to that focused test command.
+
 ## Future Enhancements
 
-- Issue comments and activity history
+- Issue activity history
 - Server-side advanced search, filtering, and pagination
 - Optimistic locking for concurrent issue updates
 - Flyway database migrations

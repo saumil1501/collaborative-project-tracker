@@ -19,18 +19,21 @@ public class IssueService {
     private final ProjectMembershipRepository memberships;
     private final UserRepository users;
     private final MembershipService membershipService;
+    private final IssueCommentRepository comments;
 
     public IssueService(
             IssueRepository issues,
             ProjectRepository projects,
             ProjectMembershipRepository memberships,
             UserRepository users,
-            MembershipService membershipService) {
+            MembershipService membershipService,
+            IssueCommentRepository comments) {
         this.issues = issues;
         this.projects = projects;
         this.memberships = memberships;
         this.users = users;
         this.membershipService = membershipService;
+        this.comments = comments;
     }
 
     @Transactional
@@ -101,7 +104,9 @@ public class IssueService {
     @Transactional
     public void delete(Long projectId, Long issueId, String email) {
         membershipService.requireMember(projectId, email);
-        issues.delete(getIssue(projectId, issueId));
+        Issue issue = getIssue(projectId, issueId);
+        comments.deleteAllByIssueId(issueId);
+        issues.delete(issue);
     }
 
     private Issue getIssue(Long projectId, Long issueId) {
