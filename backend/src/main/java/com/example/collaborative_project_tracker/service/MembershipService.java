@@ -61,11 +61,10 @@ public class MembershipService {
     public MemberResponse addMember(
             Long projectId, AddMemberRequest request, String email) {
 
-        requireOwner(projectId, email);
-
-        Project project = projects.findById(projectId)
+        Project project = projects.findLockedById(projectId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND));
+        requireOwner(projectId, email);
 
         AppUser newMember = users.findByEmailIgnoreCase(
                 request.email().trim())

@@ -112,6 +112,7 @@ export default function ProjectDashboard({
         projectId={selectedProject.id}
         projectName={selectedProject.name}
         currentUserId={currentUserId}
+        onProjectUpdated={project => { setSelectedProject(project); setProjects(previous => previous.map(item => item.id === project.id ? project : item)); }}
         onBack={() => {
           setSelectedProject(null);
           void fetchProjects();

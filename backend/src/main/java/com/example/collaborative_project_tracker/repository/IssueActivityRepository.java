@@ -9,11 +9,11 @@ public interface IssueActivityRepository extends JpaRepository<IssueActivity, Lo
     @EntityGraph(attributePaths = "actor")
     List<IssueActivity> findByIssueIdOrderByCreatedAtDescIdDesc(Long issueId);
 
-    @Modifying
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from IssueActivity a where a.issue.id = :issueId")
     void deleteAllByIssueId(@Param("issueId") Long issueId);
 
-    @Modifying
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from IssueActivity a where a.issue.id in (select i.id from Issue i where i.project.id = :projectId)")
     void deleteAllByProjectId(@Param("projectId") Long projectId);
 }

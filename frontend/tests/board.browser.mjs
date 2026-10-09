@@ -44,11 +44,12 @@ let commentList = [
 ];
 let nextId = 4;
 const members = [{ userId: 7, name: "Sam Lee", email: "sam@example.test", role: "OWNER" }, { userId: 8, name: "Alex Kim", email: "alex@example.test", role: "MEMBER" }];
+let currentUserId = 7;
 await page.route("**/api/**", async route => {
   const request = route.request(); const path = new URL(request.url()).pathname; const method = request.method();
   const reply = (data, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
   if (path.endsWith("/csrf")) return reply({ token: "test-token" });
-  if (path.endsWith("/me")) return reply({ id: 7, name: "Sam Lee", email: "sam@example.test" });
+  if (path.endsWith("/me")) { const member = members.find(item => item.userId === currentUserId); return reply({ id: currentUserId, name: member.name, email: member.email }); }
   if (path.endsWith("/activity")) {
     const issueId = Number(path.match(/issues\/(\d+)/)?.[1]);
     return reply(failActivityLoad ? {} : activityByIssue.get(issueId) || [], failActivityLoad ? 500 : 200);
@@ -189,6 +190,24 @@ try {
   failLoad = false;
   await page.getByRole("button", { name: "Reload board" }).click();
   await page.getByRole("button", { name: /Refined workspace/ }).waitFor();
+  currentUserId = 8;
+  await page.reload();
+  await page.getByRole("button", { name: "Open Board" }).click();
+  const ownStatus = page.getByRole("combobox", { name: "Status for Review mobile layout" });
+  await ownStatus.waitFor();
+  assert.equal(await ownStatus.isEnabled(), true);
+  assert.equal(await page.getByRole("combobox", { name: "Status for Refined workspace" }).isDisabled(), true);
+  assert.equal(await page.getByRole("combobox", { name: "Status for Define priorities" }).isDisabled(), true);
+  assert.equal(await page.locator("article").filter({ hasText: "Review mobile layout" }).getAttribute("draggable"), "true");
+  assert.equal(await page.locator("article").filter({ hasText: "Refined workspace" }).getAttribute("draggable"), "false");
+  await ownStatus.selectOption("DONE");
+  await waitFor(async () => issues.find(issue => issue.id === 2).status === "DONE" && await ownStatus.isEnabled());
+  issues.find(issue => issue.id === 2).assigneeId = 7;
+  await page.getByRole("button", { name: "All projects" }).click();
+  await page.getByRole("button", { name: "Open Board" }).click();
+  await ownStatus.waitFor();
+  assert.equal(await ownStatus.isDisabled(), true);
+  assert.equal(await page.locator("article").filter({ hasText: "Review mobile layout" }).getAttribute("draggable"), "false");
   assert.deepEqual(errors, []);
   console.log("Browser checks passed: board and comment interactions, read-only activity timeline, previous/new values, newest-first ordering, empty history, error retry, and mobile layout.");
 } finally { await browser.close(); }

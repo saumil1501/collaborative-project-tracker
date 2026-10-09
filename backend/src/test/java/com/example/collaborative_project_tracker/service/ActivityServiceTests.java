@@ -40,6 +40,7 @@ class ActivityServiceTests {
         issue.setDescription("Old details"); issue.setCreatedAt(LocalDateTime.now());
         when(issues.findById(2L)).thenReturn(Optional.of(issue));
         when(projects.findById(1L)).thenReturn(Optional.of(project));
+        when(projects.findLockedById(1L)).thenReturn(Optional.of(project));
         when(users.findByEmailIgnoreCase(actor.getEmail())).thenReturn(Optional.of(actor));
         recorded = new ArrayList<>();
         when(activities.save(any())).thenAnswer(invocation -> {
@@ -151,7 +152,8 @@ class ActivityServiceTests {
 
     @Test
     void projectDeletionRemovesActivityBeforeDeletingItsIssues() {
-        new ProjectService(projects, users, projectMemberships, issues, comments, activities).delete(1L, actor.getEmail());
+        new ProjectService(projects, users, projectMemberships, issues, comments, activities,
+                mock(ProjectLeaveRequestRepository.class)).delete(1L, actor.getEmail());
         var order = inOrder(activities, issues, projects);
         order.verify(activities).deleteAllByProjectId(1L); order.verify(issues).deleteByProjectId(1L); order.verify(projects).delete(project);
     }

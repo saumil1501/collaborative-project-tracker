@@ -47,11 +47,10 @@ public class IssueService {
     public IssueResponse create(
             Long projectId, IssueRequest request, String email) {
 
-        membershipService.requireMember(projectId, email);
-
-        Project project = projects.findById(projectId)
+        Project project = projects.findLockedById(projectId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND));
+        membershipService.requireMember(projectId, email);
 
         Issue issue = new Issue();
         issue.setProject(project);
@@ -83,9 +82,20 @@ public class IssueService {
             Long projectId, Long issueId,
             UpdateIssueStatusRequest request, String email) {
 
+        Project project = projects.findLockedById(projectId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         membershipService.requireMember(projectId, email);
 
         Issue issue = getIssue(projectId, issueId);
+        AppUser actor = users.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+        boolean owner = Objects.equals(project.getOwner().getId(), actor.getId());
+        boolean assignee = issue.getAssignee() != null
+                && Objects.equals(issue.getAssignee().getId(), actor.getId());
+        if (!owner && !assignee) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the project owner or current assignee can change issue status");
+        }
         activityService.record(issue, email, ActivityField.STATUS, issue.getStatus().name(), request.status().name());
         issue.setStatus(request.status());
 
@@ -97,6 +107,7 @@ public class IssueService {
             Long projectId, Long issueId,
             IssueRequest request, String email) {
 
+        projects.findLockedById(projectId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         membershipService.requireMember(projectId, email);
 
         Issue issue = getIssue(projectId, issueId);

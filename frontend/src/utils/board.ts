@@ -6,6 +6,10 @@ export type Issue = {
   dueDate: string | null; createdAt: string;
 };
 
+export function canChangeIssueStatus(issue: Issue, currentUserId: number, memberRole: string | undefined) {
+  return memberRole === "OWNER" || (memberRole === "MEMBER" && issue.assigneeId === currentUserId);
+}
+
 // Compare calendar dates, so an issue due today remains on time all day.
 export function isOverdue(issue: Issue, today = new Date()) {
   const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;

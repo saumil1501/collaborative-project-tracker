@@ -12,11 +12,11 @@ public interface IssueCommentRepository extends JpaRepository<IssueComment, Long
 
     Optional<IssueComment> findByIdAndIssueId(Long id, Long issueId);
 
-    @Modifying
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from IssueComment c where c.issue.id = :issueId")
     void deleteAllByIssueId(@Param("issueId") Long issueId);
 
-    @Modifying
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from IssueComment c where c.issue.id in (select i.id from Issue i where i.project.id = :projectId)")
     void deleteAllByProjectId(@Param("projectId") Long projectId);
 }

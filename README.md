@@ -17,19 +17,25 @@ A full-stack, multi-user project management application built using **Spring Boo
 - Manage multiple project workspaces
 - Access owned and shared projects
 - Restrict project deletion to owners
+- Owners can edit project names and descriptions from the board's Project settings panel
 
 ### Team Collaboration
 - Add registered users to projects using their email addresses
 - Project-level `OWNER` and `MEMBER` roles
 - Shared project visibility across team members
 - Authorization checks to prevent unauthorized access
+- Owners can remove members; their issues become unassigned while comments and activity remain
+- Members must request permission to leave; owners approve or reject requests
+- Members can cancel their pending request and retain access while requests are pending or rejected
+- Owners cannot leave their own project or remove themselves
+- Each member has one latest leave-request record per project; resolved requests may be resubmitted
 
 ### Issue Management
 - Create, view, edit, and delete issues
 - Assign issues to project members
 - Set issue priorities: `LOW`, `MEDIUM`, `HIGH`
 - Set due dates and descriptions
-- Update issue statuses: `TODO`, `IN_PROGRESS`, `DONE`
+- Update issue statuses: `TODO`, `IN_PROGRESS`, `DONE`. Only the project owner or current assignee can change status; unassigned issues require the owner. Other members' status menus and drag controls are disabled, and the API enforces the same rule.
 - Validate that assignees belong to the project
 
 ### Kanban Board
@@ -104,7 +110,7 @@ Spring Security handles authentication and session management. Authorization is 
 
 ## Database Design
 
-The application uses six core domain entities:
+The application uses seven core domain entities:
 
 | Entity | Description |
 |---|---|
@@ -114,6 +120,7 @@ The application uses six core domain entities:
 | Issue | Stores tasks, status, priority, assignee, and due date |
 | IssueComment | Stores issue discussion, authors, creation timestamps, and edit timestamps |
 | IssueActivity | Stores issue changes, actors, timestamps, and previous/new values |
+| ProjectLeaveRequest | Stores each member's latest request to leave and its decision status |
 
 ### Entity Relationships
 
@@ -149,6 +156,8 @@ A user can participate in multiple projects, and a project can have multiple mem
 |---|---|---|
 | POST | `/api/projects` | Create project |
 | GET | `/api/projects` | List accessible projects |
+| GET | `/api/projects/{id}` | Retrieve an accessible project |
+| PUT | `/api/projects/{id}` | Update project details (owner only) |
 | DELETE | `/api/projects/{id}` | Delete owned project |
 
 ### Memberships
@@ -157,6 +166,19 @@ A user can participate in multiple projects, and a project can have multiple mem
 |---|---|---|
 | POST | `/api/projects/{projectId}/members` | Add member |
 | GET | `/api/projects/{projectId}/members` | List project members |
+| DELETE | `/api/projects/{projectId}/members/{userId}` | Remove a member and unassign their issues (owner only) |
+
+### Leave Requests
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/projects/{projectId}/leave-requests` | Owners see all latest requests; members see only their own |
+| POST | `/api/projects/{projectId}/leave-requests` | Request permission to leave (members only) |
+| PATCH | `/api/projects/{projectId}/leave-requests/{requestId}/cancel` | Cancel your pending request |
+| PATCH | `/api/projects/{projectId}/leave-requests/{requestId}/approve` | Approve and remove membership (owner only) |
+| PATCH | `/api/projects/{projectId}/leave-requests/{requestId}/reject` | Reject while preserving membership (owner only) |
+
+Requests use `PENDING`, `APPROVED`, `REJECTED`, and `CANCELLED` states. A member cannot remove their own membership directly. Removal or approval unassigns their issues in the same transaction and records the owner as the actor in issue activity. Project locks serialize leave decisions, membership changes, and issue assignment changes. Deleting a project also deletes its leave-request records.
 
 ### Issues
 
@@ -165,7 +187,7 @@ A user can participate in multiple projects, and a project can have multiple mem
 | POST | `/api/projects/{projectId}/issues` | Create issue |
 | GET | `/api/projects/{projectId}/issues` | List project issues |
 | PUT | `/api/projects/{projectId}/issues/{issueId}` | Update issue |
-| PATCH | `/api/projects/{projectId}/issues/{issueId}/status` | Change status |
+| PATCH | `/api/projects/{projectId}/issues/{issueId}/status` | Change status (owner or current assignee only) |
 | DELETE | `/api/projects/{projectId}/issues/{issueId}` | Delete issue |
 
 ### Comments
@@ -281,6 +303,7 @@ Vite proxies `/api` requests to the Spring Boot backend.
 - CSRF tokens protect state-changing requests.
 - Project membership is checked before accessing project issues.
 - Only project owners can add members and delete projects.
+- Only the project owner or current assignee can change issue status; unassigned issues require the owner.
 - Users cannot assign issues to individuals outside the project.
 - Unauthorized project access is rejected by the backend.
 
@@ -289,12 +312,16 @@ Vite proxies `/api` requests to the Spring Boot backend.
 From `frontend`, run `npm test`, `npm run lint`, and `npm run build`.
 The logic tests use Node.js 22.6 or newer for TypeScript type stripping.
 
-An optional browser check in `frontend/tests/board.browser.mjs` uses Playwright and an installed Chrome browser. Start the Vite dev server, make Playwright available locally or via `NODE_PATH`, then run `node tests/board.browser.mjs` from `frontend`. Set `BOARD_TEST_BROWSER=msedge` to use Edge, or `BOARD_TEST_URL` to override the default `http://127.0.0.1:5173`. This check uses mock API responses and covers filtering, card moves, failed-move rollback, failed-save recovery, issue creation/editing/deletion, mobile overflow, panel dismissal, and load retry. It does not verify the backend or MySQL persistence.
+An optional browser check in `frontend/tests/board.browser.mjs` uses Playwright and an installed Chrome browser. Start the Vite dev server, make Playwright available locally or via `NODE_PATH`, then run `node tests/board.browser.mjs` from `frontend`. Set `BOARD_TEST_BROWSER=msedge` to use Edge, or `BOARD_TEST_URL` to override the default `http://127.0.0.1:5173`. This check uses mock API responses and covers owner/assignee status permissions, reassignment, filtering, card moves, failed-move rollback, failed-save recovery, issue creation/editing/deletion, mobile overflow, panel dismissal, and load retry. It does not verify the backend or MySQL persistence.
 
 To run the browser check without a preview server, build the frontend first and set `BOARD_TEST_STATIC=1`. The check intercepts the page's requests and serves the local `dist` files and mock API data, including comment creation/editing/deletion, author-only controls, plain-text rendering, failed-save recovery, and read-only activity history with newest-first ordering, previous/new values, empty states, and error retry.
 
-From `backend`, run `./mvnw -Dtest=ActivityServiceTests,CommentServiceTests,CommentValidationTests test` (or `mvnw.cmd` on Windows) to check activity change detection, project access, comment permissions, validation, and deletion cleanup without a database. These focused tests use mocks; MySQL persistence still requires an integration check.
+From `backend`, run `./mvnw -Dtest=IssueStatusPermissionTests,ProjectSettingsServiceTests,ActivityServiceTests,CommentServiceTests,CommentValidationTests test` (or `mvnw.cmd` on Windows) to check project editing, leave permissions and decisions, activity change detection, project access, comment permissions, validation, and deletion cleanup without a database.
 If Windows sandbox restrictions interfere with the forked test JVM, add `-DforkCount=0` to that focused test command.
+
+For project settings UI checks, build the frontend, make Playwright available, and run `node tests/project-settings.browser.mjs` from `frontend`. This uses intercepted mock API responses and local build files, covering owner/member controls, edit failure recovery, request/cancel/resubmit/reject/approve, direct removal, board refresh, and access loss.
+
+To explicitly test settings against the configured live MySQL database, run `./mvnw -Dtest=ProjectSettingsMysqlTests -DliveMysqlTests=true -DforkCount=0 test` from `backend`. The integration test creates temporary users and a project, exercises status permissions, reassignment, leave decisions and membership removal, flushes and reloads persisted values, checks preserved comments and activity, and rolls back all test records. It is disabled unless `liveMysqlTests=true` is supplied. App startup may update the database schema under the existing Hibernate `ddl-auto=update` configuration.
 
 ## Future Enhancements
 

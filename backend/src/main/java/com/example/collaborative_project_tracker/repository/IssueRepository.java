@@ -7,6 +7,7 @@ import java.util.List;
 public interface IssueRepository extends JpaRepository<Issue, Long> {
 
     List<Issue> findByProjectIdOrderByCreatedAtDesc(Long projectId);
+    List<Issue> findByProjectIdAndAssigneeId(Long projectId, Long assigneeId);
 
     void deleteByProjectId(Long projectId);
 }

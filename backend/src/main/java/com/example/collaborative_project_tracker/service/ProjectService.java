@@ -20,14 +20,16 @@ public class ProjectService {
     private final IssueRepository issueRepository;
     private final IssueCommentRepository comments;
     private final IssueActivityRepository activities;
+    private final ProjectLeaveRequestRepository leaveRequests;
 
-    public ProjectService(ProjectRepository projects, UserRepository users, ProjectMembershipRepository memberships, IssueRepository issueRepository, IssueCommentRepository comments, IssueActivityRepository activities) {
+    public ProjectService(ProjectRepository projects, UserRepository users, ProjectMembershipRepository memberships, IssueRepository issueRepository, IssueCommentRepository comments, IssueActivityRepository activities, ProjectLeaveRequestRepository leaveRequests) {
         this.projects = projects;
         this.users = users;
 		this.memberships = memberships;
 		this.issueRepository = issueRepository;
         this.comments = comments;
         this.activities = activities;
+        this.leaveRequests = leaveRequests;
     }
 
     @Transactional
@@ -71,7 +73,7 @@ public class ProjectService {
     @Transactional
     public void delete(Long projectId, String email) {
 
-        Project project = projects.findById(projectId)
+        Project project = projects.findLockedById(projectId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND));
 
@@ -85,6 +87,7 @@ public class ProjectService {
         issueRepository.deleteByProjectId(projectId);
 
         // Delete project memberships
+        leaveRequests.deleteAllByProjectId(projectId);
         memberships.deleteByProjectId(projectId);
 
         // Finally, delete the project
