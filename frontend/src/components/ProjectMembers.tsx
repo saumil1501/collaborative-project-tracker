@@ -17,6 +17,7 @@ export default function ProjectMembers({ projectId, isOwner }: Props) {
   const [members, setMembers] = useState<Member[]>([]);
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
 
   async function fetchMembers() {
     try {
@@ -40,6 +41,7 @@ export default function ProjectMembers({ projectId, isOwner }: Props) {
   async function addMember(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
+    setAdding(true);
 
     try {
       await api.post(`/projects/${projectId}/members`, { email });
@@ -47,11 +49,13 @@ export default function ProjectMembers({ projectId, isOwner }: Props) {
       await fetchMembers();
     } catch {
       setError("Could not add member. Check email or membership.");
-    }
+    } finally { setAdding(false); }
   }
 
   return (
-    <div className="mt-5 border-t border-slate-700 pt-4">
+    <details className="team-details">
+      <summary aria-label="Show team members"><span className="team-avatars">{members.slice(0, 3).map(member => <span key={member.userId} title={member.name}>{member.name.trim().split(/\s+/).map(word => word[0]).slice(0, 2).join("")}</span>)}</span><span>{members.length} members</span></summary>
+      <div className="team-expanded">
       <h4 className="mb-3 font-semibold">Team Members</h4>
 
       <div className="space-y-2">
@@ -72,20 +76,22 @@ export default function ProjectMembers({ projectId, isOwner }: Props) {
             type="email"
             required
             placeholder="Member email"
+            aria-label="Member email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="min-w-0 flex-1 rounded bg-slate-800 p-2 text-sm"
           />
 
-          <button className="rounded bg-indigo-600 px-3 text-sm">
-            Add
+          <button disabled={adding} className="rounded bg-indigo-600 px-3 text-sm disabled:opacity-50">
+            {adding ? "Adding…" : "Add"}
           </button>
         </form>
       )}
 
       {error && (
-        <p className="mt-2 text-xs text-red-400">{error}</p>
+        <p role="alert" className="mt-2 text-xs text-red-400">{error}</p>
       )}
-    </div>
+      </div>
+    </details>
   );
 }

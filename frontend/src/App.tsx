@@ -3,6 +3,7 @@ import api, { loadCsrf } from "./services/api";
 import ProjectDashboard from "./components/ProjectDashboard";
 import Notifications from "./components/Notifications";
 import type { NotificationTarget } from "./components/Notifications";
+import { FolderKanban, LayoutGrid, Users, Layers3, LogOut } from "lucide-react";
 
 type User = {
   id: number;
@@ -19,6 +20,7 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [notificationTarget, setNotificationTarget] = useState<NotificationTarget | null>(null);
+  const [workspace, setWorkspace] = useState({ filter: "all" as "all" | "owned" | "shared", revision: 0 });
 
   useEffect(() => {
     loadCsrf()
@@ -62,29 +64,40 @@ export default function App() {
 
   if (user) {
     return (
-      <main className="min-h-screen bg-slate-950 text-white p-4 sm:p-8 lg:p-10">
-        <div className="mx-auto max-w-7xl">
-          <div className="flex flex-wrap justify-between items-center gap-4 border-b border-slate-800 pb-6">
+      <main className="workspace-frame text-white">
+        <div className="workspace-shell">
+          <aside className="workspace-sidebar" aria-label="Workspace navigation">
+            <a href="#" onClick={event => { event.preventDefault(); setNotificationTarget(null); setWorkspace(previous => ({ filter: "all", revision: previous.revision + 1 })); }} className="workspace-brand"><span><FolderKanban size={23} /></span>Project Tracker</a>
+            <p className="sidebar-caption">WORKSPACE</p>
+            <nav className="workspace-nav">
+              {([{ filter: "all", label: "Overview", icon: LayoutGrid }, { filter: "owned", label: "My projects", icon: Layers3 }, { filter: "shared", label: "Shared with me", icon: Users }] as const).map(item => (
+                <button key={item.filter} aria-current={workspace.filter === item.filter ? "page" : undefined} onClick={() => { setNotificationTarget(null); setWorkspace(previous => ({ filter: item.filter, revision: previous.revision + 1 })); }}><item.icon size={18} />{item.label}</button>
+              ))}
+            </nav>
+            <div className="sidebar-note"><FolderKanban size={25} /><strong>A little more organised.</strong><p>Projects, people and progress. Together in one place.</p></div>
+            <div className="sidebar-profile"><span className="profile-avatar">{user.name.slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><p>{user.email}</p></div></div>
+          </aside>
+          <div className="workspace-content">
+          <header className="workspace-topbar">
             <div>
-              <h1 className="text-3xl font-bold">
-                Welcome, {user.name}
-              </h1>
-              <p className="text-slate-400">{user.email}</p>
+              <p className="text-xs text-slate-400">Workspace <span className="mx-2 text-slate-600">/</span> Projects</p>
+              <h1 className="mt-1 text-sm font-medium">Welcome, {user.name}</h1>
             </div>
 
             <div className="flex items-center gap-3">
               <Notifications key={user.id} onOpen={target => setNotificationTarget(previous => ({ ...target, requestId: (previous?.requestId ?? 0) + 1 }))} />
               <button
                 onClick={logout}
-                className="rounded-lg bg-red-600 px-5 py-2"
+                className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
               >
-                Logout
+                <LogOut size={16} /> Logout
               </button>
             </div>
+          </header>
+
+          <ProjectDashboard key={`${user.id}:${workspace.revision}`} currentUserId={user.id} ownershipFilter={workspace.filter} notificationTarget={notificationTarget} />
+
           </div>
-
-          <ProjectDashboard currentUserId={user.id} notificationTarget={notificationTarget} />
-
         </div>
       </main>
     );
