@@ -97,6 +97,11 @@ try {
   await owner.screenshot({ path: "tests/board-settings-owner.png" });
   await owner.getByRole("button", { name: "Close project settings" }).click();
   await owner.getByRole("heading", { name: "Updated workspace", exact: true }).waitFor();
+  await owner.getByRole("button", { name: "Assigned task", exact: false }).waitFor();
+  assert.equal(await owner.locator("article").filter({ hasText: "Assigned task" }).getByText("Unassigned", { exact: true }).count(), 1);
+  assert.equal(await owner.getByRole("combobox", { name: "Filter by assignee" }).locator('option[value="8"]').count(), 0);
+  await owner.getByRole("button", { name: "All projects" }).click();
+  await owner.getByRole("heading", { name: "Updated workspace", exact: true }).waitFor();
   await member.reload();
   await member.getByText("No projects yet", { exact: true }).waitFor();
   assert.deepEqual(errors, []);

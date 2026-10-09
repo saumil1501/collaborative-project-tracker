@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { ArrowLeft, CalendarDays, Check, Circle, CircleCheck, Clock3, GripVertical, Plus, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, CalendarDays, Check, Circle, CircleCheck, Clock3, GripVertical, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import api from "../services/api";
 import IssueComments from "./IssueComments";
 import IssueActivity from "./IssueActivity";
+import ProjectSettings from "./ProjectSettings";
+import type { ProjectDetails } from "./ProjectSettings";
 import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues } from "../utils/board";
 import type { Issue, Priority, Status } from "../utils/board";
 
@@ -16,9 +18,11 @@ const columns = [
 const priorityColors = { LOW: "bg-slate-700/70 text-slate-300", MEDIUM: "bg-amber-400/10 text-amber-300", HIGH: "bg-rose-400/10 text-rose-300" };
 const fieldClass = "w-full rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2.5 text-sm text-slate-100";
 
-export default function KanbanBoard({ projectId, projectName, currentUserId, onBack }: {
+export default function KanbanBoard({ projectId, projectName, currentUserId, onBack, onProjectUpdated }: {
   projectId: number; projectName: string; currentUserId: number; onBack: () => void;
+  onProjectUpdated: (project: ProjectDetails) => void;
 }) {
+  const [showSettings, setShowSettings] = useState(false);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
@@ -174,7 +178,10 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
       <button onClick={onBack} disabled={pendingId !== null} className="mb-6 flex items-center gap-2 text-sm text-slate-400 hover:text-white disabled:opacity-50"><ArrowLeft size={16} /> All projects</button>
       <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0"><p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-indigo-400">Project workspace</p><h2 className="break-words text-3xl font-semibold tracking-tight sm:text-4xl">{projectName}</h2><p className="mt-2 text-sm text-slate-400">A little clarity. A lot of progress.</p></div>
-        {canEditIssues && <button onClick={() => openEditor(null)} disabled={loading || Boolean(error && !issues.length) || pendingId !== null} className="flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold shadow-lg shadow-indigo-500/15 hover:bg-indigo-400 disabled:opacity-50"><Plus size={17} /> New issue</button>}
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={() => setShowSettings(true)} disabled={loading || pendingId !== null} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-50"><Settings size={17} /> Project settings</button>
+          {canEditIssues && <button onClick={() => openEditor(null)} disabled={loading || Boolean(error && !issues.length) || pendingId !== null} className="flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold shadow-lg shadow-indigo-500/15 hover:bg-indigo-400 disabled:opacity-50"><Plus size={17} /> New issue</button>}
+        </div>
       </div>
 
       <div className="mb-6 grid grid-cols-3 gap-2 sm:gap-4" aria-label="Board summary">
@@ -212,6 +219,8 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
         })}
       </div>
       <p className="mt-4 text-xs text-slate-500">Owners and current assignees can change status using drag and drop or the status menu. Only the owner can create, edit other details or delete issues. Members can join the discussion.</p>
+
+      {showSettings && <ProjectSettings projectId={projectId} currentUserId={currentUserId} onProjectUpdated={onProjectUpdated} onBack={onBack} onClose={() => { setShowSettings(false); setLoading(true); void loadBoard(); }} />}
 
       {editor && <dialog ref={dialog} aria-labelledby="issue-panel-title" onCancel={event => { event.preventDefault(); if (!panelBusy) setEditor(null); }} onClick={event => { if (event.target === event.currentTarget && !panelBusy) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) setEditor(null); } }} className="issue-panel fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-full max-w-lg border-l border-slate-700 bg-slate-900 p-0 text-slate-100 shadow-2xl">
         <form onSubmit={saveIssue} className="flex min-h-full flex-col">
