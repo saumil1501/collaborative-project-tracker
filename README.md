@@ -51,6 +51,14 @@ A full-stack, multi-user project management application built using **Spring Boo
 - Comment text must be nonblank and no longer than 2,000 characters
 - Deleting an issue or its project also deletes associated comments
 
+### Issue Activity History
+- Project members can read a newest-first timeline in the issue side panel
+- Records issue creation and changes to title, description, status, priority, assignee, and due date
+- Shows the acting user, timestamp, and previous/new values; unchanged values create no entries
+- Activity is recorded in the same transaction as the issue change
+- History starts when tracking is added; earlier changes to existing issues are not reconstructed
+- History is read-only and is deleted with its issue or project
+
 ## Tech Stack
 
 | Layer | Technologies |
@@ -96,7 +104,7 @@ Spring Security handles authentication and session management. Authorization is 
 
 ## Database Design
 
-The application uses five core domain entities:
+The application uses six core domain entities:
 
 | Entity | Description |
 |---|---|
@@ -105,6 +113,7 @@ The application uses five core domain entities:
 | ProjectMembership | Maps users to projects with OWNER/MEMBER roles |
 | Issue | Stores tasks, status, priority, assignee, and due date |
 | IssueComment | Stores issue discussion, authors, creation timestamps, and edit timestamps |
+| IssueActivity | Stores issue changes, actors, timestamps, and previous/new values |
 
 ### Entity Relationships
 
@@ -169,6 +178,14 @@ All comment routes require project membership and validate that the issue belong
 | POST | `/api/projects/{projectId}/issues/{issueId}/comments` | Add a comment using `{ "body": "Comment text" }` |
 | PUT | `/api/projects/{projectId}/issues/{issueId}/comments/{commentId}` | Edit your comment |
 | DELETE | `/api/projects/{projectId}/issues/{issueId}/comments/{commentId}` | Delete your comment |
+
+### Activity History
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/projects/{projectId}/issues/{issueId}/activity` | List issue activity newest first; requires project membership |
+
+There are no public activity creation, editing, or deletion endpoints. Issue mutations record activity automatically.
 
 ## Getting Started
 
@@ -274,14 +291,13 @@ The logic tests use Node.js 22.6 or newer for TypeScript type stripping.
 
 An optional browser check in `frontend/tests/board.browser.mjs` uses Playwright and an installed Chrome browser. Start the Vite dev server, make Playwright available locally or via `NODE_PATH`, then run `node tests/board.browser.mjs` from `frontend`. Set `BOARD_TEST_BROWSER=msedge` to use Edge, or `BOARD_TEST_URL` to override the default `http://127.0.0.1:5173`. This check uses mock API responses and covers filtering, card moves, failed-move rollback, failed-save recovery, issue creation/editing/deletion, mobile overflow, panel dismissal, and load retry. It does not verify the backend or MySQL persistence.
 
-To run the browser check without a preview server, build the frontend first and set `BOARD_TEST_STATIC=1`. The check intercepts the page's requests and serves the local `dist` files and mock API data, including comment creation/editing/deletion, author-only controls, plain-text rendering, and failed-save recovery.
+To run the browser check without a preview server, build the frontend first and set `BOARD_TEST_STATIC=1`. The check intercepts the page's requests and serves the local `dist` files and mock API data, including comment creation/editing/deletion, author-only controls, plain-text rendering, failed-save recovery, and read-only activity history with newest-first ordering, previous/new values, empty states, and error retry.
 
-From `backend`, run `./mvnw -Dtest=CommentServiceTests,CommentValidationTests test` (or `mvnw.cmd` on Windows) to check comment permissions, validation, and deletion cleanup without a database. These focused tests use mocks; MySQL persistence still requires an integration check.
+From `backend`, run `./mvnw -Dtest=ActivityServiceTests,CommentServiceTests,CommentValidationTests test` (or `mvnw.cmd` on Windows) to check activity change detection, project access, comment permissions, validation, and deletion cleanup without a database. These focused tests use mocks; MySQL persistence still requires an integration check.
 If Windows sandbox restrictions interfere with the forked test JVM, add `-DforkCount=0` to that focused test command.
 
 ## Future Enhancements
 
-- Issue activity history
 - Server-side advanced search, filtering, and pagination
 - Optimistic locking for concurrent issue updates
 - Flyway database migrations

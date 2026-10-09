@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { ArrowLeft, CalendarDays, Check, Circle, CircleCheck, Clock3, GripVertical, Plus, Search, Trash2, X } from "lucide-react";
 import api from "../services/api";
 import IssueComments from "./IssueComments";
+import IssueActivity from "./IssueActivity";
 import { filterIssues, initials, isOverdue, summarizeIssues } from "../utils/board";
 import type { Issue, Priority, Status } from "../utils/board";
 
@@ -220,6 +221,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
             {editor.issue && <div className="rounded-xl border border-slate-800 p-4 text-xs text-slate-400"><p>Status: <span className="text-slate-200">{columns.find(column => column.status === editor.issue?.status)?.label}</span></p><p className="mt-2">Created {new Date(editor.issue.createdAt).toLocaleDateString()}</p></div>}
           </fieldset>
           {editor.issue && <IssueComments key={editor.issue.id} projectId={projectId} issueId={editor.issue.id} currentUserId={currentUserId} disabled={saving || confirmDelete} onBusyChange={setCommentsBusy} />}
+          {editor.issue && <IssueActivity key={editor.issue.id} projectId={projectId} issueId={editor.issue.id} />}
           {editorError && <p role="alert" className="mx-6 mb-4 rounded-xl bg-rose-500/10 p-3 text-sm text-rose-300">{editorError}</p>}
           {confirmDelete && <div className="mx-6 mb-5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4"><p className="text-sm font-medium text-rose-200">Delete this issue permanently?</p><p className="mt-1 text-xs text-rose-300/80">This action cannot be undone.</p><div className="mt-3 flex gap-3"><button type="button" disabled={panelBusy} onClick={() => void deleteIssue()} className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold disabled:opacity-50">{saving ? "Deleting…" : "Yes, delete issue"}</button><button type="button" disabled={panelBusy} onClick={() => setConfirmDelete(false)} className="text-xs text-slate-300">Keep issue</button></div></div>}
           <footer className="sticky bottom-0 flex items-center gap-3 border-t border-slate-800 bg-slate-900 p-6">{editor.issue && <button type="button" disabled={panelBusy} onClick={() => setConfirmDelete(true)} aria-label="Delete issue" className="mr-auto rounded-lg p-2 text-rose-400 hover:bg-rose-500/10 disabled:opacity-50"><Trash2 size={18} /></button>}<button type="button" disabled={panelBusy} onClick={() => setEditor(null)} className="ml-auto rounded-xl px-3 py-2.5 text-sm text-slate-400 hover:text-white disabled:opacity-50">Cancel</button><button type="submit" disabled={panelBusy || confirmDelete} className="rounded-xl bg-indigo-500 px-5 py-2.5 text-sm font-semibold hover:bg-indigo-400 disabled:opacity-50">{saving ? "Saving…" : editor.issue ? "Save changes" : "Create issue"}</button></footer>

@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class IssueService {
@@ -20,6 +21,8 @@ public class IssueService {
     private final UserRepository users;
     private final MembershipService membershipService;
     private final IssueCommentRepository comments;
+    private final IssueActivityRepository activities;
+    private final ActivityService activityService;
 
     public IssueService(
             IssueRepository issues,
@@ -27,13 +30,17 @@ public class IssueService {
             ProjectMembershipRepository memberships,
             UserRepository users,
             MembershipService membershipService,
-            IssueCommentRepository comments) {
+            IssueCommentRepository comments,
+            IssueActivityRepository activities,
+            ActivityService activityService) {
         this.issues = issues;
         this.projects = projects;
         this.memberships = memberships;
         this.users = users;
         this.membershipService = membershipService;
         this.comments = comments;
+        this.activities = activities;
+        this.activityService = activityService;
     }
 
     @Transactional
@@ -56,7 +63,9 @@ public class IssueService {
         issue.setDueDate(request.dueDate());
         issue.setAssignee(resolveAssignee(projectId, request.assigneeId()));
 
-        return toResponse(issues.save(issue));
+        Issue saved = issues.save(issue);
+        activityService.record(saved, email, ActivityField.CREATED, null, saved.getTitle());
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -77,6 +86,7 @@ public class IssueService {
         membershipService.requireMember(projectId, email);
 
         Issue issue = getIssue(projectId, issueId);
+        activityService.record(issue, email, ActivityField.STATUS, issue.getStatus().name(), request.status().name());
         issue.setStatus(request.status());
 
         return toResponse(issue);
@@ -91,12 +101,22 @@ public class IssueService {
 
         Issue issue = getIssue(projectId, issueId);
 
+        AppUser assignee = resolveAssignee(projectId, request.assigneeId());
+        IssuePriority priority = request.priority() != null ? request.priority() : IssuePriority.MEDIUM;
+        activityService.record(issue, email, ActivityField.TITLE, issue.getTitle(), request.title().trim());
+        activityService.record(issue, email, ActivityField.DESCRIPTION, issue.getDescription(), request.description());
+        activityService.record(issue, email, ActivityField.PRIORITY, issue.getPriority().name(), priority.name());
+        activityService.record(issue, email, ActivityField.DUE_DATE,
+                issue.getDueDate() != null ? issue.getDueDate().toString() : null,
+                request.dueDate() != null ? request.dueDate().toString() : null);
+        if (!Objects.equals(issue.getAssignee() != null ? issue.getAssignee().getId() : null, request.assigneeId())) {
+            activityService.record(issue, email, ActivityField.ASSIGNEE, assigneeLabel(issue.getAssignee()), assigneeLabel(assignee));
+        }
         issue.setTitle(request.title().trim());
         issue.setDescription(request.description());
-        issue.setPriority(request.priority() != null
-                ? request.priority() : IssuePriority.MEDIUM);
+        issue.setPriority(priority);
         issue.setDueDate(request.dueDate());
-        issue.setAssignee(resolveAssignee(projectId, request.assigneeId()));
+        issue.setAssignee(assignee);
 
         return toResponse(issue);
     }
@@ -106,7 +126,12 @@ public class IssueService {
         membershipService.requireMember(projectId, email);
         Issue issue = getIssue(projectId, issueId);
         comments.deleteAllByIssueId(issueId);
+        activities.deleteAllByIssueId(issueId);
         issues.delete(issue);
+    }
+
+    private String assigneeLabel(AppUser user) {
+        return user != null ? user.getName() + " (#" + user.getId() + ")" : null;
     }
 
     private Issue getIssue(Long projectId, Long issueId) {

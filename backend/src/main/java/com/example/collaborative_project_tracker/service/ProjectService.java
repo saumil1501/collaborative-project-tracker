@@ -19,13 +19,15 @@ public class ProjectService {
     private final ProjectMembershipRepository memberships;
     private final IssueRepository issueRepository;
     private final IssueCommentRepository comments;
+    private final IssueActivityRepository activities;
 
-    public ProjectService(ProjectRepository projects, UserRepository users, ProjectMembershipRepository memberships, IssueRepository issueRepository, IssueCommentRepository comments) {
+    public ProjectService(ProjectRepository projects, UserRepository users, ProjectMembershipRepository memberships, IssueRepository issueRepository, IssueCommentRepository comments, IssueActivityRepository activities) {
         this.projects = projects;
         this.users = users;
 		this.memberships = memberships;
 		this.issueRepository = issueRepository;
         this.comments = comments;
+        this.activities = activities;
     }
 
     @Transactional
@@ -79,6 +81,7 @@ public class ProjectService {
 
         // Delete all issues associated with this project
         comments.deleteAllByProjectId(projectId);
+        activities.deleteAllByProjectId(projectId);
         issueRepository.deleteByProjectId(projectId);
 
         // Delete project memberships
