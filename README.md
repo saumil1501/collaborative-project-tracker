@@ -31,7 +31,7 @@ A full-stack, multi-user project management application built using **Spring Boo
 - Each member has one latest leave-request record per project; resolved requests may be resubmitted
 
 ### Issue Management
-- Create, view, edit, and delete issues
+- Only project owners can create, edit, and delete issues; members can view and discuss them
 - Assign issues to project members
 - Set issue priorities: `LOW`, `MEDIUM`, `HIGH`
 - Set due dates and descriptions
@@ -184,11 +184,11 @@ Requests use `PENDING`, `APPROVED`, `REJECTED`, and `CANCELLED` states. A member
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/api/projects/{projectId}/issues` | Create issue |
+| POST | `/api/projects/{projectId}/issues` | Create issue (owner only) |
 | GET | `/api/projects/{projectId}/issues` | List project issues |
-| PUT | `/api/projects/{projectId}/issues/{issueId}` | Update issue |
+| PUT | `/api/projects/{projectId}/issues/{issueId}` | Update issue (owner only) |
 | PATCH | `/api/projects/{projectId}/issues/{issueId}/status` | Change status (owner or current assignee only) |
-| DELETE | `/api/projects/{projectId}/issues/{issueId}` | Delete issue |
+| DELETE | `/api/projects/{projectId}/issues/{issueId}` | Delete issue (owner only) |
 
 ### Comments
 
@@ -303,7 +303,7 @@ Vite proxies `/api` requests to the Spring Boot backend.
 - CSRF tokens protect state-changing requests.
 - Project membership is checked before accessing project issues.
 - Only project owners can add members and delete projects.
-- Only the project owner or current assignee can change issue status; unassigned issues require the owner.
+- Only the project owner can create, edit issue details, or delete issues. Status changes are allowed for the owner and current assignee. Members retain access to issue details, activity, and comments.
 - Users cannot assign issues to individuals outside the project.
 - Unauthorized project access is rejected by the backend.
 
@@ -312,7 +312,7 @@ Vite proxies `/api` requests to the Spring Boot backend.
 From `frontend`, run `npm test`, `npm run lint`, and `npm run build`.
 The logic tests use Node.js 22.6 or newer for TypeScript type stripping.
 
-An optional browser check in `frontend/tests/board.browser.mjs` uses Playwright and an installed Chrome browser. Start the Vite dev server, make Playwright available locally or via `NODE_PATH`, then run `node tests/board.browser.mjs` from `frontend`. Set `BOARD_TEST_BROWSER=msedge` to use Edge, or `BOARD_TEST_URL` to override the default `http://127.0.0.1:5173`. This check uses mock API responses and covers owner/assignee status permissions, reassignment, filtering, card moves, failed-move rollback, failed-save recovery, issue creation/editing/deletion, mobile overflow, panel dismissal, and load retry. It does not verify the backend or MySQL persistence.
+An optional browser check in `frontend/tests/board.browser.mjs` uses Playwright and an installed Chrome browser. Start the Vite dev server, make Playwright available locally or via `NODE_PATH`, then run `node tests/board.browser.mjs` from `frontend`. Set `BOARD_TEST_BROWSER=msedge` to use Edge, or `BOARD_TEST_URL` to override the default `http://127.0.0.1:5173`. This check uses mock API responses and covers owner-only issue details, owner/assignee status permissions, reassignment, and member discussion, filtering, card moves, failed-move rollback, failed-save recovery, issue creation/editing/deletion, mobile overflow, panel dismissal, and load retry. It does not verify the backend or MySQL persistence.
 
 To run the browser check without a preview server, build the frontend first and set `BOARD_TEST_STATIC=1`. The check intercepts the page's requests and serves the local `dist` files and mock API data, including comment creation/editing/deletion, author-only controls, plain-text rendering, failed-save recovery, and read-only activity history with newest-first ordering, previous/new values, empty states, and error retry.
 

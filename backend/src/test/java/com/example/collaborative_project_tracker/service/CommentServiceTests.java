@@ -110,10 +110,13 @@ class CommentServiceTests {
 
     @Test
     void issueDeletionRemovesCommentsFirst() {
-        IssueService issueService = new IssueService(issues, mock(ProjectRepository.class),
+        ProjectRepository projects = mock(ProjectRepository.class);
+        issue.getProject().setOwner(comment.getAuthor());
+        when(projects.findLockedById(1L)).thenReturn(Optional.of(issue.getProject()));
+        IssueService issueService = new IssueService(issues, projects,
                 mock(ProjectMembershipRepository.class), users, memberships, comments,
                 mock(IssueActivityRepository.class), mock(ActivityService.class));
-        issueService.delete(1L, 2L, "member@example.test");
+        issueService.delete(1L, 2L, "author@example.test");
         var order = inOrder(comments, issues);
         order.verify(comments).deleteAllByIssueId(2L);
         order.verify(issues).delete(issue);

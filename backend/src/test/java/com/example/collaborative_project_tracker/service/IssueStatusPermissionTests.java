@@ -1,6 +1,7 @@
 package com.example.collaborative_project_tracker.service;
 
 import com.example.collaborative_project_tracker.dto.UpdateIssueStatusRequest;
+import com.example.collaborative_project_tracker.dto.IssueRequest;
 import com.example.collaborative_project_tracker.model.*;
 import com.example.collaborative_project_tracker.repository.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -8,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import java.util.Optional;
+import java.time.LocalDate;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -85,5 +87,32 @@ class IssueStatusPermissionTests {
     @Test void issueMustBelongToRequestedProject() {
         Project different = new Project(); different.setId(99L); issue.setProject(different);
         denied(owner, HttpStatus.NOT_FOUND);
+    }
+
+    @Test void membersIncludingAssigneeCannotEditAnyDetailsCreateOrDeleteIssues() {
+        issue.setTitle("Original"); issue.setDescription("Original description");
+        issue.setDueDate(LocalDate.of(2026, 10, 10));
+        var changes = new IssueRequest("Changed", "Changed description", IssuePriority.HIGH,
+                owner.getId(), LocalDate.of(2026, 11, 11));
+        for (AppUser member : new AppUser[]{assignee, other}) {
+            assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                    () -> service.update(10L, 20L, changes, member.getEmail())).getStatusCode());
+            assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                    () -> service.create(10L, changes, member.getEmail())).getStatusCode());
+            assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                    () -> service.delete(10L, 20L, member.getEmail())).getStatusCode());
+        }
+        assertEquals("Original", issue.getTitle());
+        assertEquals("Original description", issue.getDescription());
+        assertEquals(IssuePriority.MEDIUM, issue.getPriority());
+        assertEquals(LocalDate.of(2026, 10, 10), issue.getDueDate());
+        assertSame(assignee, issue.getAssignee());
+        verifyNoInteractions(issues, activity);
+    }
+
+    @Test void membersCanStillViewIssues() {
+        service.list(10L, assignee.getEmail());
+        verify(memberships).requireMember(10L, assignee.getEmail());
+        verify(issues).findByProjectIdOrderByCreatedAtDesc(10L);
     }
 }

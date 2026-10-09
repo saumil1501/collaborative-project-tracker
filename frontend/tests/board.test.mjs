@@ -1,13 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canChangeIssueStatus, filterIssues, initials, isOverdue, summarizeIssues } from "../src/utils/board.ts";
+import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues } from "../src/utils/board.ts";
 
 const today = new Date(2026, 9, 9, 23, 59);
 const base = { id: 1, title: "Review design", description: null, status: "TODO", priority: "HIGH", assigneeId: 7, assigneeName: "Sam Lee", dueDate: "2026-10-09", createdAt: "2026-10-01T12:00:00" };
 const issues = [base, { ...base, id: 2, title: "Ship board", status: "DONE", dueDate: "2026-10-01", assigneeId: 8 }, { ...base, id: 3, title: "Write notes", dueDate: "2026-10-08", priority: "LOW", assigneeId: null }];
 const filters = { query: "", priority: "", assignee: "", mineOnly: false, currentUserId: 7 };
 
-test("only owners and current member assignees can change status", () => {
+test("only project owners can manage issues", () => {
+  assert.equal(canManageIssues("OWNER"), true);
+  assert.equal(canManageIssues("MEMBER"), false);
+  assert.equal(canManageIssues(undefined), false);
+});
+
+test("status allows owners and current member assignees only", () => {
   assert.equal(canChangeIssueStatus(base, 8, "OWNER"), true);
   assert.equal(canChangeIssueStatus(issues[2], 8, "OWNER"), true);
   assert.equal(canChangeIssueStatus(base, 7, "MEMBER"), true);

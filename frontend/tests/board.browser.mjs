@@ -190,6 +190,7 @@ try {
   failLoad = false;
   await page.getByRole("button", { name: "Reload board" }).click();
   await page.getByRole("button", { name: /Refined workspace/ }).waitFor();
+  await page.setViewportSize({ width: 1440, height: 1000 });
   currentUserId = 8;
   await page.reload();
   await page.getByRole("button", { name: "Open Board" }).click();
@@ -202,6 +203,23 @@ try {
   assert.equal(await page.locator("article").filter({ hasText: "Refined workspace" }).getAttribute("draggable"), "false");
   await ownStatus.selectOption("DONE");
   await waitFor(async () => issues.find(issue => issue.id === 2).status === "DONE" && await ownStatus.isEnabled());
+  await page.locator("article").filter({ hasText: "Review mobile layout" }).dragTo(page.getByRole("region", { name: "To do", exact: true }));
+  await waitFor(async () => issues.find(issue => issue.id === 2).status === "TODO" && await ownStatus.isEnabled());
+  assert.equal(await page.getByRole("button", { name: "New issue", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Create an issue (starts in To do)", exact: true }).count(), 0);
+  await page.getByRole("button", { name: /Review mobile layout/ }).click();
+  const details = page.getByRole("dialog");
+  for (const id of ["issue-title", "issue-description", "issue-priority", "issue-assignee", "issue-due"]) {
+    assert.equal(await details.locator("#" + id).isDisabled(), true);
+  }
+  assert.equal(await details.getByRole("button", { name: "Save changes" }).count(), 0);
+  assert.equal(await details.getByRole("button", { name: "Delete issue", exact: true }).count(), 0);
+  const commentInput = details.getByRole("textbox", { name: "Add a comment" });
+  assert.equal(await commentInput.isEnabled(), true);
+  await commentInput.fill("Member discussion remains available");
+  await details.getByRole("button", { name: "Post comment", exact: true }).click();
+  await details.getByText("Member discussion remains available", { exact: true }).waitFor();
+  await page.keyboard.press("Escape");
   issues.find(issue => issue.id === 2).assigneeId = 7;
   await page.getByRole("button", { name: "All projects" }).click();
   await page.getByRole("button", { name: "Open Board" }).click();
@@ -210,4 +228,9 @@ try {
   assert.equal(await page.locator("article").filter({ hasText: "Review mobile layout" }).getAttribute("draggable"), "false");
   assert.deepEqual(errors, []);
   console.log("Browser checks passed: board and comment interactions, read-only activity timeline, previous/new values, newest-first ordering, empty history, error retry, and mobile layout.");
+} catch (error) {
+  console.error("Page errors:", errors);
+  console.error("Visible alerts:", await page.getByRole("alert").allTextContents());
+  await page.screenshot({ path: "tests/board-failure.png", fullPage: true });
+  throw error;
 } finally { await browser.close(); }

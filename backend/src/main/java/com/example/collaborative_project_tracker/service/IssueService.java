@@ -47,10 +47,7 @@ public class IssueService {
     public IssueResponse create(
             Long projectId, IssueRequest request, String email) {
 
-        Project project = projects.findLockedById(projectId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND));
-        membershipService.requireMember(projectId, email);
+        Project project = requireIssueOwner(projectId, email);
 
         Issue issue = new Issue();
         issue.setProject(project);
@@ -85,7 +82,6 @@ public class IssueService {
         Project project = projects.findLockedById(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         membershipService.requireMember(projectId, email);
-
         Issue issue = getIssue(projectId, issueId);
         AppUser actor = users.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
@@ -107,8 +103,7 @@ public class IssueService {
             Long projectId, Long issueId,
             IssueRequest request, String email) {
 
-        projects.findLockedById(projectId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        membershipService.requireMember(projectId, email);
+        requireIssueOwner(projectId, email);
 
         Issue issue = getIssue(projectId, issueId);
 
@@ -134,11 +129,24 @@ public class IssueService {
 
     @Transactional
     public void delete(Long projectId, Long issueId, String email) {
-        membershipService.requireMember(projectId, email);
+        requireIssueOwner(projectId, email);
         Issue issue = getIssue(projectId, issueId);
         comments.deleteAllByIssueId(issueId);
         activities.deleteAllByIssueId(issueId);
         issues.delete(issue);
+    }
+
+    private Project requireIssueOwner(Long projectId, String email) {
+        Project project = projects.findLockedById(projectId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        membershipService.requireMember(projectId, email);
+        AppUser actor = users.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+        if (!Objects.equals(project.getOwner().getId(), actor.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the project owner can create, change or delete issues");
+        }
+        return project;
     }
 
     private String assigneeLabel(AppUser user) {

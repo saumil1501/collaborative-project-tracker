@@ -6,8 +6,12 @@ export type Issue = {
   dueDate: string | null; createdAt: string;
 };
 
+export function canManageIssues(memberRole: string | undefined) {
+  return memberRole === "OWNER";
+}
+
 export function canChangeIssueStatus(issue: Issue, currentUserId: number, memberRole: string | undefined) {
-  return memberRole === "OWNER" || (memberRole === "MEMBER" && issue.assigneeId === currentUserId);
+  return canManageIssues(memberRole) || (memberRole === "MEMBER" && issue.assigneeId === currentUserId);
 }
 
 // Compare calendar dates, so an issue due today remains on time all day.

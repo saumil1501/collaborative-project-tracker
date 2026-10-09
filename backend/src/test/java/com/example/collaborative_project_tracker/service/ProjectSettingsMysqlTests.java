@@ -39,7 +39,7 @@ class ProjectSettingsMysqlTests {
     }
 
     @Test
-    void liveStatusChangesRequireOwnerOrCurrentAssignee() {
+    void liveStatusAllowsAssigneeWhileOtherChangesRequireOwner() {
         AppUser owner = user("Status test owner");
         AppUser assignee = user("Status test assignee");
         AppUser other = user("Status test other member");
@@ -56,7 +56,17 @@ class ProjectSettingsMysqlTests {
         int activityCount = activities.findByIssueIdOrderByCreatedAtDescIdDesc(issueId).size();
         assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class, () ->
                 issueService.updateStatus(projectId, issueId, new UpdateIssueStatusRequest(IssueStatus.TODO), assignee.getEmail())).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class, () ->
+                issueService.update(projectId, issueId, new IssueRequest("Unauthorized title", "Unauthorized details",
+                        IssuePriority.HIGH, assignee.getId(), null), other.getEmail())).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class, () ->
+                issueService.delete(projectId, issueId, other.getEmail())).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class, () ->
+                issueService.create(projectId, new IssueRequest("Unauthorized creation", null, null, null, null), other.getEmail())).getStatusCode());
+        commentService.create(projectId, issueId, new CommentRequest("Members can still discuss"), assignee.getEmail());
         entityManager.flush(); entityManager.clear();
+        assertEquals("Status permissions", issues.findById(issueId).orElseThrow().getTitle());
+        assertEquals(1, comments.findByIssueIdOrderByCreatedAtAscIdAsc(issueId).size());
         assertEquals(IssueStatus.DONE, issues.findById(issueId).orElseThrow().getStatus());
         assertEquals(activityCount, activities.findByIssueIdOrderByCreatedAtDescIdDesc(issueId).size());
     }
