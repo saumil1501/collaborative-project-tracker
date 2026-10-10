@@ -12,8 +12,12 @@ public record IssueRequest(
     LocalDate dueDate,
     IssueType type,
     Integer storyPoints,
-    @Size(max = 10) java.util.List<@NotBlank @Size(max = 30) @Pattern(regexp = "[a-zA-Z0-9][a-zA-Z0-9_-]*") String> labels
+    @Size(max = 10) java.util.List<@NotBlank @Size(max = 30) @Pattern(regexp = "[a-zA-Z0-9][a-zA-Z0-9_-]*") String> labels,
+    @Positive Long parentId
 ) {
+    public IssueRequest(String title, String description, IssuePriority priority, Long assigneeId, LocalDate dueDate, IssueType type, Integer storyPoints, java.util.List<String> labels) {
+        this(title, description, priority, assigneeId, dueDate, type, storyPoints, labels, null);
+    }
     public IssueRequest(String title, String description, IssuePriority priority, Long assigneeId, LocalDate dueDate) {
         this(title, description, priority, assigneeId, dueDate, null, null, null);
     }

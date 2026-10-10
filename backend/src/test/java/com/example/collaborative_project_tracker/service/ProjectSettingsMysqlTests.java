@@ -42,6 +42,48 @@ class ProjectSettingsMysqlTests {
     }
 
     @Test
+    void hierarchyPersistsPermissionsSprintInheritanceAndSafeCleanup() {
+        AppUser owner = user("Hierarchy owner"), member = user("Hierarchy member");
+        var project = projectService.create(new CreateProjectRequest("Hierarchy verification", null), owner.getEmail());
+        membershipService.addMember(project.id(), new AddMemberRequest(member.getEmail()), owner.getEmail());
+        var epic = issueService.create(project.id(), new IssueRequest("Authentication", null, null, null, null, IssueType.EPIC, null, java.util.List.of(), null), owner.getEmail());
+        var story = issueService.create(project.id(), new IssueRequest("Login", null, null, owner.getId(), null, IssueType.STORY, 5, java.util.List.of(), epic.id()), owner.getEmail());
+        var subtask = issueService.create(project.id(), new IssueRequest("Login tests", null, null, member.getId(), null, IssueType.SUBTASK, null, java.util.List.of(), story.id()), owner.getEmail());
+        var sprint = planning.create(project.id(), new SprintRequest("Authentication sprint", null, java.time.LocalDate.now(), java.time.LocalDate.now().plusDays(7)), owner.getEmail());
+        planning.move(project.id(), story.id(), new MoveIssueSprintRequest(sprint.id()), owner.getEmail());
+        var active = planning.start(project.id(), sprint.id(), owner.getEmail());
+        assertEquals(1, active.committedIssueCount()); assertEquals(5, active.committedPoints());
+        entityManager.flush(); entityManager.clear();
+        var saved = issueService.list(project.id(), member.getEmail()).stream().filter(item -> item.id().equals(subtask.id())).findFirst().orElseThrow();
+        assertEquals(story.id(), saved.parentId()); assertEquals(story.issueKey(), saved.parentKey()); assertEquals(sprint.id(), saved.sprintId());
+        assertNull(issues.findById(subtask.id()).orElseThrow().getSprint());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ResponseStatusException.class, () -> issueService.updateStatus(project.id(), story.id(), new UpdateIssueStatusRequest(IssueStatus.DONE), owner.getEmail())).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class, () -> issueService.update(project.id(), subtask.id(), new IssueRequest("Forbidden", null, null, null, null, IssueType.SUBTASK, null, java.util.List.of(), story.id()), member.getEmail())).getStatusCode());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ResponseStatusException.class, () -> planning.move(project.id(), subtask.id(), new MoveIssueSprintRequest(null), owner.getEmail())).getStatusCode());
+        commentService.create(project.id(), subtask.id(), new CommentRequest("Discuss the tests"), member.getEmail());
+        issueService.updateStatus(project.id(), subtask.id(), new UpdateIssueStatusRequest(IssueStatus.DONE), member.getEmail());
+        issueService.updateStatus(project.id(), story.id(), new UpdateIssueStatusRequest(IssueStatus.DONE), owner.getEmail());
+        issueService.updateStatus(project.id(), epic.id(), new UpdateIssueStatusRequest(IssueStatus.DONE), owner.getEmail());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ResponseStatusException.class, () -> issueService.updateStatus(project.id(), subtask.id(), new UpdateIssueStatusRequest(IssueStatus.TODO), member.getEmail())).getStatusCode());
+        var report = planning.complete(project.id(), sprint.id(), owner.getEmail());
+        assertEquals(1, report.snapshots().size()); assertEquals(5, report.snapshots().getFirst().storyPoints());
+        entityManager.flush(); entityManager.clear();
+        assertNull(issueService.list(project.id(), member.getEmail()).stream().filter(item -> item.id().equals(subtask.id())).findFirst().orElseThrow().sprintId());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ResponseStatusException.class, () -> issueService.delete(project.id(), epic.id(), owner.getEmail())).getStatusCode());
+        issueService.update(project.id(), story.id(), new IssueRequest("Login", null, null, owner.getId(), null, IssueType.STORY, 5, java.util.List.of(), null), owner.getEmail());
+        entityManager.flush(); entityManager.clear();
+        assertNull(issues.findById(story.id()).orElseThrow().getParent());
+        assertTrue(activities.findByIssueIdOrderByCreatedAtDescIdDesc(story.id()).stream().anyMatch(item -> item.getField() == ActivityField.PARENT));
+        issueService.delete(project.id(), epic.id(), owner.getEmail());
+        // Keep a populated self-referencing tree when testing full project deletion.
+        var other = issueService.create(project.id(), new IssueRequest("Second epic", null, null, null, null, IssueType.EPIC, null, java.util.List.of(), null), owner.getEmail());
+        issueService.update(project.id(), story.id(), new IssueRequest("Login", null, null, owner.getId(), null, IssueType.STORY, 5, java.util.List.of(), other.id()), owner.getEmail());
+        projectService.delete(project.id(), owner.getEmail()); entityManager.flush(); entityManager.clear();
+        assertFalse(projects.existsById(project.id())); assertFalse(issues.existsById(subtask.id()));
+        assertTrue(comments.findByIssueIdOrderByCreatedAtAscIdAsc(subtask.id()).isEmpty());
+    }
+
+    @Test
     void sprintPlanningPersistsOrderOutcomesHistoryAndProjectDeletion() {
         AppUser owner = user("Planning owner"), member = user("Planning member");
         var project = projectService.create(new CreateProjectRequest("Sprint verification", null), owner.getEmail());

@@ -79,6 +79,7 @@ public class PlanningService {
     public void move(Long projectId, Long issueId, MoveIssueSprintRequest request, String email) {
         ownerLock(projectId, email);
         Issue issue = issues.findById(issueId).filter(item -> item.getProject().getId().equals(projectId)).orElseThrow(this::missing);
+        if (!issue.isPlannable()) throw conflict("Plan stories, tasks and bugs; subtasks inherit the parent sprint and epics span sprints");
         Sprint target = request.sprintId() != null ? getSprint(projectId, request.sprintId()) : null;
         if (target != null && target.getStatus() == SprintStatus.COMPLETED) throw conflict("Completed sprints are immutable");
         Long previousId = issue.getSprint() != null ? issue.getSprint().getId() : null;
@@ -92,7 +93,7 @@ public class PlanningService {
     public void reorder(Long projectId, BacklogOrderRequest request, String email) {
         ownerLock(projectId, email);
         List<Issue> backlog = issues.findByProjectIdOrderByCreatedAtDesc(projectId).stream()
-                .filter(issue -> issue.getSprint() == null && issue.getStatus() != IssueStatus.DONE).toList();
+                .filter(issue -> issue.isPlannable() && issue.getSprint() == null && issue.getStatus() != IssueStatus.DONE).toList();
         List<Long> ids = request.issueIds();
         if (ids == null || ids.size() != new HashSet<>(ids).size() || !new HashSet<>(ids).equals(new HashSet<>(backlog.stream().map(Issue::getId).toList())))
             throw conflict("The backlog changed. Refresh and reorder the current issues");

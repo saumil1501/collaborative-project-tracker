@@ -49,6 +49,20 @@ A full-stack, multi-user project management application built using **Spring Boo
 - Open a shareable issue URL such as `/#project=1&issue=2`; login and project membership are still required, and stale targets show an error
 - Existing rows need no destructive backfill. Hibernate's current `ddl-auto=update` adds nullable metadata columns and unique key constraints at startup; Flyway remains a future production improvement
 
+### Epics and Subtasks
+- Three-level hierarchy: Epic > Story/Task/Bug > Subtask; standard issues can also stay outside an epic
+- Owners create epics and subtasks, link/reparent issues, and manage all metadata; owner/current-assignee status permissions and member discussion remain unchanged
+- An Epics view shows grouped work, nested subtasks, direct-child completion percentages and completed estimated points
+- Issue details include parent navigation, child navigation, add-child actions and a separate permission-controlled status menu
+- Subtasks require a standard issue parent and inherit that parent's sprint; epics span sprints and are not allocated to a sprint
+- Only stories, tasks and bugs appear as independently ordered/planned work; their subtasks appear on the sprint board
+- Estimates stay on standard issues. Epics and subtasks have no story points, so sprint commitments/reports count parent issues once
+- Marking a parent done requires all direct children done; reopen completed ancestors before reopening a child or adding unfinished work
+- Parent links must stay in the same project and cannot point to the issue itself, form cycles or skip hierarchy levels
+- Epic and Subtask types cannot be converted after creation; standard Bug/Task/Story types remain editable
+- Parent changes appear in activity history. Deleting a parent requires moving or deleting its children first; deleting a project removes its full hierarchy
+- New parent links are nullable, preserving existing ungrouped issues; issue types use VARCHAR storage to support the expanded type set on existing MySQL installations
+
 ### Kanban Board
 - Three-column board: To Do, In Progress, Done
 - View issues grouped by status
@@ -228,6 +242,10 @@ Requests use `PENDING`, `APPROVED`, `REJECTED`, and `CANCELLED` states. A member
 | PUT | `/api/projects/{projectId}/issues/{issueId}` | Update issue (owner only) |
 | PATCH | `/api/projects/{projectId}/issues/{issueId}/status` | Change status (owner or current assignee only) |
 | DELETE | `/api/projects/{projectId}/issues/{issueId}` | Delete issue (owner only) |
+
+Issue create/update payloads accept `type` (`EPIC`, `STORY`, `TASK`, `BUG`, `SUBTASK`) and optional `parentId`. For example, create an epic with `{ "title": "Authentication", "type": "EPIC" }`, link a story with `{ "title": "Login", "type": "STORY", "parentId": 1, "storyPoints": 5 }`, and add a subtask with `{ "title": "Test login", "type": "SUBTASK", "parentId": 2 }`. Issue responses include `parentId`, `parentKey` and the effective `sprintId`. Set a standard issue's `parentId` to `null` to remove its epic link. Update uses the complete issue metadata payload, including its current parent.
+
+Hierarchy conflicts return an explanatory HTTP 409 response; invalid levels or estimates return 400, and foreign-project parents return 404. Issue mutation errors use a `ProblemDetail` body with a readable `detail` field.
 
 ### Planning
 
@@ -438,3 +456,5 @@ Developed as a full-stack software engineering project to explore REST API devel
 Structured issue UI checks: build the frontend, then run `node tests/structured-issues.browser.mjs` with `BOARD_TEST_STATIC=1` and Playwright available. Tests use mock API data. `ActivityServiceTests` covers metadata validation, normalization, audit changes and legacy numbering; the opt-in `ProjectSettingsMysqlTests` also verifies persistence, stable keys, owner-only metadata and number preservation after deletion.
 
 Planning verification: include `PlanningServiceTests` in backend unit checks. The opt-in live MySQL test suite verifies order persistence, lifecycle, permissions, snapshot survival after issue deletion, and project cleanup. Build the frontend and run `node tests/planning.browser.mjs` with Playwright available to check create/edit/move/reorder/start/complete/delete, failure recovery, sprint board filtering, member controls, reports and mobile layout using mock API data.
+
+Hierarchy verification: include `IssueHierarchyTests` and `PlanningServiceTests` in backend unit checks. The opt-in `ProjectSettingsMysqlTests` verifies persisted parent links, inherited sprint membership, permissions, completion rules, parent activity and project cleanup with temporary records that roll back. Build the frontend and run `node tests/hierarchy.browser.mjs` with Playwright available to verify epic/subtask creation, failure recovery, navigation, reparenting, progress, protected deletion, planning scope, member controls and mobile layout using mock API data.

@@ -1,10 +1,11 @@
 export type Status = "TODO" | "IN_PROGRESS" | "DONE";
 export type Priority = "LOW" | "MEDIUM" | "HIGH";
+export type IssueType = "BUG" | "TASK" | "STORY" | "EPIC" | "SUBTASK";
 export type Issue = {
   id: number; title: string; description: string | null; status: Status;
   priority: Priority; assigneeId: number | null; assigneeName: string | null;
   dueDate: string | null; createdAt: string;
-  sprintId?: number | null; planningRank?: number; issueKey?: string; type?: "BUG" | "TASK" | "STORY"; storyPoints?: number | null; labels?: string[];
+  sprintId?: number | null; planningRank?: number; issueKey?: string; type?: IssueType; parentId?: number | null; parentKey?: string | null; storyPoints?: number | null; labels?: string[];
 };
 
 export function canManageIssues(memberRole: string | undefined) {
@@ -48,6 +49,19 @@ export type Sprint = {
 };
 
 export function orderedBacklog(issues: Issue[]) {
-  return issues.filter(issue => issue.sprintId == null && issue.status !== "DONE")
+  return issues.filter(issue => isPlannable(issue) && issue.sprintId == null && issue.status !== "DONE")
     .sort((left, right) => (left.planningRank ?? left.id) - (right.planningRank ?? right.id) || left.id - right.id);
+}
+
+export function isPlannable(issue: Issue) {
+  return issue.type !== "EPIC" && issue.type !== "SUBTASK";
+}
+
+// Count direct children only: a story and its subtasks must not count twice.
+export function childProgress(parentId: number, issues: Issue[]) {
+  const children = issues.filter(issue => issue.parentId === parentId);
+  const done = children.filter(issue => issue.status === "DONE").length;
+  return { total: children.length, done, percent: children.length ? Math.round(done * 100 / children.length) : 0,
+    points: children.reduce((sum, issue) => sum + (issue.storyPoints || 0), 0),
+    completedPoints: children.filter(issue => issue.status === "DONE").reduce((sum, issue) => sum + (issue.storyPoints || 0), 0) };
 }

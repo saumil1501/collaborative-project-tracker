@@ -6,9 +6,10 @@ import IssueComments from "./IssueComments";
 import IssueActivity from "./IssueActivity";
 import ProjectSettings from "./ProjectSettings";
 import SprintPlanning from "./SprintPlanning";
+import IssueHierarchy from "./IssueHierarchy";
 import type { ProjectDetails } from "./ProjectSettings";
-import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues } from "../utils/board";
-import type { Issue, Priority, Status, Sprint } from "../utils/board";
+import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues, childProgress } from "../utils/board";
+import type { Issue, Priority, Status, Sprint, IssueType } from "../utils/board";
 
 type Member = { userId: number; name: string; email: string; role: string };
 const columns = [
@@ -26,7 +27,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
 }) {
   const [showSettings, setShowSettings] = useState(initialSettings);
   const openedInitialIssue = useRef(false);
-  const [view, setView] = useState<"all" | "backlog" | "sprint">("all");
+  const [view, setView] = useState<"all" | "backlog" | "sprint" | "epics">("all");
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [planningLoading, setPlanningLoading] = useState(true);
   const [planningError, setPlanningError] = useState("");
@@ -48,10 +49,11 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
   const [editor, setEditor] = useState<{ issue: Issue | null } | null>(null);
   const [saving, setSaving] = useState(false);
   const [commentsBusy, setCommentsBusy] = useState(false);
-  const panelBusy = saving || commentsBusy || planningBusy;
+  const panelBusy = saving || commentsBusy || planningBusy || pendingId !== null;
   const [editorError, setEditorError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [issueType, setIssueType] = useState<"BUG" | "TASK" | "STORY">("TASK");
+  const [issueType, setIssueType] = useState<IssueType>("TASK");
+  const [parentId, setParentId] = useState("");
   const [storyPoints, setStoryPoints] = useState("");
   const [labels, setLabels] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -80,6 +82,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
         openedInitialIssue.current = true;
         const issue = issueResponse.data.find(item => item.id === initialIssueId);
         if (issue) {
+          setParentId(issue.parentId?.toString() || "");
           setIssueType(issue.type || "TASK"); setStoryPoints(issue.storyPoints?.toString() || ""); setLabels((issue.labels || []).join(", "));
           setTitle(issue.title); setDescription(issue.description || ""); setPriority(issue.priority);
           setAssigneeId(issue.assigneeId?.toString() || ""); setDueDate(issue.dueDate || "");
@@ -139,9 +142,10 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
     };
   }, [editor]);
 
-  function openEditor(issue: Issue | null) {
+  function openEditor(issue: Issue | null, defaults?: { type: IssueType; parentId?: number }) {
     if (planningBusy || mutationLock.current || (!issue && !canEditIssues)) return;
-    setIssueType(issue?.type || "TASK");
+    setIssueType(issue?.type || defaults?.type || "TASK");
+    setParentId((issue?.parentId ?? defaults?.parentId)?.toString() || "");
     setStoryPoints(issue?.storyPoints?.toString() || "");
     setLabels((issue?.labels || []).join(", "));
     setTitle(issue?.title ?? "");
@@ -163,20 +167,22 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
     if (issueLabels.length > 10 || issueLabels.some(label => !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,29}$/.test(label))) {
       setEditorError("Use up to 10 labels, each 1–30 letters, digits, hyphens or underscores."); return;
     }
+    if (issueType === "SUBTASK" && !parentId) { setEditorError("Choose a parent story, task or bug for this subtask."); return; }
     if (mutationLock.current) return;
     mutationLock.current = true;
     setSaving(true);
     setEditorError("");
-    const payload = { title: title.trim(), description: description.trim(), priority, assigneeId: assigneeId ? Number(assigneeId) : null, dueDate: dueDate || null, type: issueType, storyPoints: storyPoints ? Number(storyPoints) : null, labels: issueLabels };
+    const payload = { title: title.trim(), description: description.trim(), priority, assigneeId: assigneeId ? Number(assigneeId) : null, dueDate: dueDate || null, type: issueType, storyPoints: storyPoints ? Number(storyPoints) : null, labels: issueLabels, parentId: parentId ? Number(parentId) : null };
     try {
       const { data } = editor?.issue
         ? await api.put<Issue>(`/projects/${projectId}/issues/${editor.issue.id}`, payload)
         : await api.post<Issue>(`/projects/${projectId}/issues`, payload);
       setIssues(previous => editor?.issue ? previous.map(issue => issue.id === data.id ? data : issue) : [data, ...previous]);
-      setNotice(editor?.issue ? "Issue updated." : "Issue created in the backlog.");
+      setNotice(editor?.issue ? "Issue updated." : issueType === "EPIC" ? "Epic created." : issueType === "SUBTASK" ? "Subtask created under its parent." : "Issue created in the backlog.");
       setEditor(null);
-    } catch {
-      setEditorError("We couldn't save your issue. Your changes are still here; please try again.");
+    } catch (error) {
+      const reason = (error as { response?: { data?: { message?: string; detail?: string } } }).response?.data?.detail || (error as { response?: { data?: { message?: string } } }).response?.data?.message;
+      setEditorError(reason || "We couldn't save your issue. Your changes are still here; please try again.");
     } finally {
       mutationLock.current = false;
       setSaving(false);
@@ -192,10 +198,12 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
     try {
       const { data } = await api.patch<Issue>(`/projects/${projectId}/issues/${issue.id}/status`, { status });
       setIssues(previous => previous.map(item => item.id === issue.id ? data : item));
+      setEditor(previous => previous?.issue?.id === data.id ? { issue: data } : previous);
       setNotice(`Issue moved to ${columns.find(column => column.status === status)?.label}.`);
-    } catch {
+    } catch (error) {
       setIssues(previous => previous.map(item => item.id === issue.id ? issue : item));
-      setError("We couldn't save that move. The issue has been returned to its previous column.");
+      const reason = (error as { response?: { data?: { message?: string; detail?: string } } }).response?.data?.detail || (error as { response?: { data?: { message?: string } } }).response?.data?.message;
+      setError(reason || "We couldn't save that move. The issue has been returned to its previous column.");
     } finally {
       mutationLock.current = false;
       setPendingId(null);
@@ -212,8 +220,9 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
       setIssues(previous => previous.filter(issue => issue.id !== editor.issue?.id));
       setEditor(null);
       setNotice("Issue deleted.");
-    } catch {
-      setEditorError("We couldn't delete this issue. Please try again.");
+    } catch (error) {
+      const reason = (error as { response?: { data?: { message?: string; detail?: string } } }).response?.data?.detail || (error as { response?: { data?: { message?: string } } }).response?.data?.message;
+      setEditorError(reason || "We couldn't delete this issue. Please try again.");
     } finally {
       mutationLock.current = false;
       setSaving(false);
@@ -222,7 +231,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
 
   const focusedSprint = sprints.find(sprint => sprint.id === selectedSprintId && sprint.status !== "COMPLETED")
     || sprints.find(sprint => sprint.status === "ACTIVE") || sprints.find(sprint => sprint.status === "PLANNED");
-  const scopedIssues = view === "sprint" ? issues.filter(issue => Boolean(focusedSprint) && issue.sprintId === focusedSprint?.id) : issues;
+  const scopedIssues = view === "sprint" ? issues.filter(issue => Boolean(focusedSprint) && issue.type !== "EPIC" && issue.sprintId === focusedSprint?.id) : issues;
   const filteredIssues = filterIssues(scopedIssues, { query, priority: priorityFilter, assignee: assigneeFilter, mineOnly, currentUserId });
   const visibleIssues = filteredIssues.filter(issue => !typeFilter || (issue.type || "TASK") === typeFilter);
   const summary = summarizeIssues(scopedIssues);
@@ -238,12 +247,14 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
         </div>
       </div>
 
-      <nav aria-label="Project views" className="mb-6 flex flex-wrap gap-2 border-b border-slate-800 pb-4">{([{ id: "all", label: "All issues" }, { id: "backlog", label: "Backlog" }, { id: "sprint", label: "Sprint board" }] as const).map(tab => <button key={tab.id} type="button" disabled={planningBusy || panelBusy || pendingId !== null} aria-pressed={view === tab.id} onClick={() => setView(tab.id)} className={`rounded-lg px-4 py-2 text-sm disabled:opacity-50 ${view === tab.id ? "bg-indigo-500/15 text-indigo-300" : "text-slate-400 hover:bg-slate-800"}`}>{tab.label}</button>)}</nav>
-      {view !== "all" && planningLoading && <p role="status" className="mb-5 text-sm text-slate-400">Loading sprint planning...</p>}
-      {view !== "all" && planningError && <div role="alert" className="mb-5 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300">{planningError}<button disabled={planningBusy} type="button" onClick={() => void refreshPlanning().catch(() => {})} className="ml-2 underline">Reload planning</button></div>}
-      {view !== "all" && !planningError && <SprintPlanning projectId={projectId} issues={issues} sprints={sprints} canManage={canEditIssues} blocked={loading || planningLoading || Boolean(error) || panelBusy || pendingId !== null} compact={view === "sprint"} focusedSprint={focusedSprint} onSelect={setSelectedSprintId} onOpenIssue={openEditor} onChanged={refreshPlanning} onCompleted={() => setView("backlog")} onBusyChange={setPlanningBusy} />}
-      {view === "backlog" && error && <div role="alert" className="mb-5 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300">{error}<button type="button" disabled={planningBusy || loading} onClick={() => { setLoading(true); void loadBoard(); }} className="ml-2 underline">Reload board</button></div>}
-      {view !== "backlog" && <>
+      <nav aria-label="Project views" className="mb-6 flex flex-wrap gap-2 border-b border-slate-800 pb-4">{([{ id: "all", label: "All issues" }, { id: "backlog", label: "Backlog" }, { id: "sprint", label: "Sprint board" }, { id: "epics", label: "Epics" }] as const).map(tab => <button key={tab.id} type="button" disabled={planningBusy || panelBusy || pendingId !== null} aria-pressed={view === tab.id} onClick={() => setView(tab.id)} className={`rounded-lg px-4 py-2 text-sm disabled:opacity-50 ${view === tab.id ? "bg-indigo-500/15 text-indigo-300" : "text-slate-400 hover:bg-slate-800"}`}>{tab.label}</button>)}</nav>
+      {(view === "backlog" || view === "sprint") && planningLoading && <p role="status" className="mb-5 text-sm text-slate-400">Loading sprint planning...</p>}
+      {(view === "backlog" || view === "sprint") && planningError && <div role="alert" className="mb-5 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300">{planningError}<button disabled={planningBusy} type="button" onClick={() => void refreshPlanning().catch(() => {})} className="ml-2 underline">Reload planning</button></div>}
+      {(view === "backlog" || view === "sprint") && !planningError && <SprintPlanning projectId={projectId} issues={issues} sprints={sprints} canManage={canEditIssues} blocked={loading || planningLoading || Boolean(error) || panelBusy || pendingId !== null} compact={view === "sprint"} focusedSprint={focusedSprint} onSelect={setSelectedSprintId} onOpenIssue={openEditor} onChanged={refreshPlanning} onCompleted={() => setView("backlog")} onBusyChange={setPlanningBusy} />}
+      {view === "epics" && loading && <p role="status" className="mb-5 text-sm text-slate-400">Loading issue hierarchy...</p>}
+      {view === "epics" && !loading && <IssueHierarchy issues={issues} canManage={canEditIssues} blocked={loading || panelBusy || Boolean(error)} onOpen={openEditor} onCreate={(type, parentId) => openEditor(null, { type, parentId })} />}
+      {(view === "backlog" || view === "epics") && error && <div role="alert" className="mb-5 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300">{error}<button type="button" disabled={planningBusy || loading} onClick={() => { setLoading(true); void loadBoard(); }} className="ml-2 underline">Reload board</button></div>}
+      {(view === "all" || view === "sprint") && <>
       <div className="mb-6 grid grid-cols-3 gap-2 sm:gap-4" aria-label="Board summary">
         {[{ label: "Total issues", value: summary.total, color: "text-white" }, { label: "Completed", value: summary.completed, color: "text-emerald-400" }, { label: "Overdue", value: summary.overdue, color: "text-rose-400" }].map(stat => <div key={stat.label} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3 sm:p-5"><p className="text-xs text-slate-400 sm:text-sm">{stat.label}</p><p className={`mt-2 text-2xl font-semibold ${stat.color}`}>{loading ? "—" : stat.value}</p></div>)}
       </div>
@@ -252,7 +263,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
         <div className="flex flex-wrap gap-3">
           <div className="relative min-w-0 flex-[2_1_220px]"><Search size={17} className="absolute left-3 top-3 text-slate-500" /><input aria-label="Search issue titles" placeholder="Search issues…" value={query} onChange={event => setQuery(event.target.value)} className={`${fieldClass} pl-10`} /></div>
           <select aria-label="Filter by assignee" value={assigneeFilter} onChange={event => setAssigneeFilter(event.target.value)} className={`${fieldClass} min-w-0 flex-[1_1_150px]`}><option value="">All assignees</option><option value="unassigned">Unassigned</option>{members.map(member => <option key={member.userId} value={member.userId}>{member.name}</option>)}</select>
-          <select aria-label="Filter by issue type" value={typeFilter} onChange={event => setTypeFilter(event.target.value)} className={`${fieldClass} min-w-0 flex-[1_1_130px]`}><option value="">All types</option><option value="BUG">Bug</option><option value="TASK">Task</option><option value="STORY">Story</option></select>
+          <select aria-label="Filter by issue type" value={typeFilter} onChange={event => setTypeFilter(event.target.value)} className={`${fieldClass} min-w-0 flex-[1_1_130px]`}><option value="">All types</option><option value="BUG">Bug</option><option value="TASK">Task</option><option value="STORY">Story</option><option value="EPIC">Epic</option><option value="SUBTASK">Subtask</option></select>
           <select aria-label="Filter by priority" value={priorityFilter} onChange={event => setPriorityFilter(event.target.value)} className={`${fieldClass} min-w-0 flex-[1_1_130px]`}><option value="">All priorities</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select>
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><button aria-pressed={mineOnly} onClick={() => setMineOnly(!mineOnly)} className={`rounded-lg border px-3 py-1.5 text-xs transition ${mineOnly ? "border-indigo-500/50 bg-indigo-500/15 text-indigo-300" : "border-slate-700 text-slate-400 hover:text-white"}`}>Assigned to me</button><div className="flex items-center gap-3 text-xs text-slate-500"><span>{loading ? "Loading issues…" : `${visibleIssues.length} of ${scopedIssues.length} issues`}</span>{filtersActive && <button onClick={() => { setQuery(""); setAssigneeFilter(""); setPriorityFilter(""); setMineOnly(false); setTypeFilter(""); }} className="text-indigo-300 hover:text-indigo-200">Clear filters</button>}</div></div>
@@ -270,7 +281,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
             <div className="space-y-3">
               {loading ? [0, 1].map(item => <div key={item} className="animate-pulse rounded-xl border border-slate-700/60 bg-slate-800/60 p-4" aria-hidden="true"><div className="mb-4 h-3 w-16 rounded bg-slate-700" /><div className="mb-2 h-4 w-4/5 rounded bg-slate-700" /><div className="mb-6 h-3 w-3/5 rounded bg-slate-700" /><div className="h-7 w-full rounded bg-slate-700" /></div>) : columnIssues.map(issue => <article key={issue.id} draggable={canChangeStatus(issue) && pendingId === null && !planningBusy} onDragStart={event => { if (!canChangeStatus(issue)) { event.preventDefault(); return; } setDraggingId(issue.id); event.dataTransfer.setData("text/plain", String(issue.id)); event.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => { setDraggingId(null); setDropTarget(null); }} className={`group rounded-xl border border-slate-700/70 bg-slate-800/80 p-4 shadow-sm transition hover:border-slate-600 ${draggingId === issue.id ? "opacity-40" : ""} ${pendingId === issue.id ? "animate-pulse" : ""}`}>
                 <div className="mb-3 flex items-center justify-between"><span className="text-[11px] font-medium tracking-wide text-slate-500">{issue.issueKey || `ISSUE-${issue.id}`}</span>{canChangeStatus(issue) && <GripVertical size={15} aria-hidden="true" className="cursor-grab text-slate-600 group-hover:text-slate-400" />}</div>
-                <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-indigo-300"><span className="rounded bg-slate-800 px-2 py-1">{issue.type || "TASK"}</span>{issue.storyPoints != null && <span>{issue.storyPoints} points</span>}</div>
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-indigo-300"><span className="rounded bg-slate-800 px-2 py-1">{issue.type || "TASK"}</span>{issue.parentKey && <span>Parent: {issue.parentKey}</span>}{childProgress(issue.id, issues).total > 0 && <span>{childProgress(issue.id, issues).done}/{childProgress(issue.id, issues).total} children done</span>}{issue.storyPoints != null && <span>{issue.storyPoints} points</span>}</div>
                 <button onClick={() => openEditor(issue)} disabled={pendingId !== null || planningBusy} className="block w-full text-left disabled:opacity-60"><h4 className="break-words text-sm font-semibold leading-6 text-slate-100 group-hover:text-indigo-200">{issue.title}</h4><p className="mt-1.5 line-clamp-2 break-words text-xs leading-5 text-slate-400">{issue.description || "Add a description to bring this issue into focus."}</p></button>
                 <div className="my-4 flex flex-wrap items-center gap-2"><span className={`rounded-md px-2 py-1 text-[11px] font-medium ${priorityColors[issue.priority]}`}>{issue.priority.charAt(0) + issue.priority.slice(1).toLowerCase()} priority</span>{issue.dueDate && <span className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] ${isOverdue(issue) ? "bg-rose-500/10 text-rose-300" : "bg-slate-700/50 text-slate-400"}`}><CalendarDays size={12} />{new Date(`${issue.dueDate}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}{isOverdue(issue) && " · Overdue"}</span>}</div>
                 {Boolean(issue.labels?.length) && <div className="flex flex-wrap gap-1">{issue.labels?.map(label => <span key={label} className="max-w-full break-all rounded bg-slate-800 px-2 py-1 text-[10px] text-slate-300">{label}</span>)}</div>}
@@ -295,13 +306,20 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
             <div><label htmlFor="issue-title" className="mb-2 block text-sm font-medium">Title <span className="text-indigo-400">*</span></label><input ref={titleInput} id="issue-title" required maxLength={150} placeholder="What needs to happen?" value={title} onChange={event => setTitle(event.target.value)} className={fieldClass} /></div>
             <div><label htmlFor="issue-description" className="mb-2 block text-sm font-medium">Description</label><textarea id="issue-description" rows={7} maxLength={2000} placeholder="Add context, a checklist, or what success looks like…" value={description} onChange={event => setDescription(event.target.value)} className={`${fieldClass} resize-y`} /></div>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2"><div><label htmlFor="issue-priority" className="mb-2 block text-sm font-medium">Priority</label><select id="issue-priority" value={priority} onChange={event => setPriority(event.target.value as Priority)} className={fieldClass}><option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option></select></div><div><label htmlFor="issue-assignee" className="mb-2 block text-sm font-medium">Assignee</label><select id="issue-assignee" value={assigneeId} onChange={event => setAssigneeId(event.target.value)} className={fieldClass}><option value="">Unassigned</option>{members.map(member => <option key={member.userId} value={member.userId}>{member.name}</option>)}</select></div></div>
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2"><div><label htmlFor="issue-type" className="mb-2 block text-sm font-medium">Issue type</label><select id="issue-type" value={issueType} onChange={event => setIssueType(event.target.value as "BUG" | "TASK" | "STORY")} className={fieldClass}><option value="TASK">Task</option><option value="BUG">Bug</option><option value="STORY">Story</option></select></div><div><label htmlFor="issue-points" className="mb-2 block text-sm font-medium">Story points</label><select id="issue-points" value={storyPoints} onChange={event => setStoryPoints(event.target.value)} className={fieldClass}><option value="">Not estimated</option>{[1, 2, 3, 5, 8, 13].map(value => <option key={value} value={value}>{value}</option>)}</select></div></div>
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2"><div><label htmlFor="issue-type" className="mb-2 block text-sm font-medium">Issue type</label><select id="issue-type" value={issueType} disabled={Boolean(editor.issue && (editor.issue.type === "EPIC" || editor.issue.type === "SUBTASK"))} onChange={event => { const type = event.target.value as IssueType; setIssueType(type); if (type === "EPIC" || type === "SUBTASK" || issueType === "EPIC" || issueType === "SUBTASK") setParentId(""); if (type === "EPIC" || type === "SUBTASK") setStoryPoints(""); }} className={fieldClass}><option value="TASK">Task</option><option value="BUG">Bug</option><option value="STORY">Story</option>{(!editor.issue || editor.issue.type === "EPIC") && <option value="EPIC">Epic</option>}{(!editor.issue || editor.issue.type === "SUBTASK") && <option value="SUBTASK">Subtask</option>}</select></div><div><label htmlFor="issue-points" className="mb-2 block text-sm font-medium">Story points</label><select id="issue-points" disabled={issueType === "EPIC" || issueType === "SUBTASK"} value={storyPoints} onChange={event => setStoryPoints(event.target.value)} className={fieldClass}><option value="">Not estimated</option>{[1, 2, 3, 5, 8, 13].map(value => <option key={value} value={value}>{value}</option>)}</select></div></div>
+            {issueType !== "EPIC" && <div><label htmlFor="issue-parent" className="mb-2 block text-sm font-medium">{issueType === "SUBTASK" ? "Parent issue" : "Epic"}</label><select id="issue-parent" required={issueType === "SUBTASK"} value={parentId} onChange={event => setParentId(event.target.value)} className={fieldClass}><option value="">{issueType === "SUBTASK" ? "Choose a parent" : "No epic"}</option>{issues.filter(issue => issue.id !== editor.issue?.id && (issueType === "SUBTASK" ? issue.type !== "EPIC" && issue.type !== "SUBTASK" : issue.type === "EPIC")).map(issue => <option key={issue.id} value={issue.id}>{issue.issueKey || `ISSUE-${issue.id}`} - {issue.title}</option>)}</select><p className="mt-2 text-xs text-slate-400">{issueType === "SUBTASK" ? "Subtasks inherit their parent's sprint. Estimate the parent issue." : "Group this issue under a larger goal. Reopen a completed epic before adding unfinished work."}</p></div>}
             <div><label htmlFor="issue-labels" className="mb-2 block text-sm font-medium">Labels</label><input id="issue-labels" value={labels} maxLength={320} onChange={event => setLabels(event.target.value)} placeholder="frontend, authentication" className={fieldClass} /><p className="mt-2 text-xs text-slate-400">Comma-separated. Up to 10 labels; letters, digits, hyphens and underscores.</p></div>
             <div><label htmlFor="issue-due" className="mb-2 block text-sm font-medium">Due date</label><input id="issue-due" type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} className={fieldClass} /><p className="mt-2 text-xs text-slate-500">Optional. Unfinished issues past this date are marked overdue.</p></div>
             {editor.issue && <div className="rounded-xl border border-slate-800 p-4 text-xs text-slate-400"><p>Status: <span className="text-slate-200">{columns.find(column => column.status === editor.issue?.status)?.label}</span></p><p className="mt-2">Created {new Date(editor.issue.createdAt).toLocaleDateString()}</p></div>}
           </fieldset>
-          {editor.issue && <IssueComments key={`comments-${editor.issue.id}`} projectId={projectId} issueId={editor.issue.id} currentUserId={currentUserId} disabled={saving || confirmDelete} onBusyChange={setCommentsBusy} />}
-          {editor.issue && <IssueActivity key={`activity-${editor.issue.id}`} projectId={projectId} issueId={editor.issue.id} />}
+          {editor.issue && <section aria-label="Issue relationships" className="mx-6 mb-6 space-y-3 rounded-xl border border-slate-700 p-4">
+            <label className="block text-xs text-slate-400" htmlFor="detail-status">Issue status</label><select id="detail-status" value={editor.issue.status} disabled={panelBusy || !canChangeStatus(editor.issue)} onChange={event => void changeStatus(editor.issue!, event.target.value as Status)} className={fieldClass}>{columns.map(column => <option key={column.status} value={column.status}>{column.label}</option>)}</select>
+            {error && <p role="alert" className="break-words text-xs text-rose-300">{error}</p>}
+            {editor.issue.parentId && <button type="button" disabled={panelBusy} onClick={() => { const parent = issues.find(issue => issue.id === editor.issue?.parentId); if (parent) openEditor(parent); }} className="block text-left text-xs text-indigo-300 underline">Open parent {editor.issue.parentKey}</button>}
+            {editor.issue.type !== "SUBTASK" && <><p className="text-xs text-slate-300">{childProgress(editor.issue.id, issues).done}/{childProgress(editor.issue.id, issues).total} {editor.issue.type === "EPIC" ? "issues" : "subtasks"} completed</p>{issues.filter(issue => issue.parentId === editor.issue?.id).map(issue => <button key={issue.id} type="button" disabled={panelBusy} onClick={() => openEditor(issue)} className="block w-full break-words rounded-lg bg-slate-800 p-3 text-left text-xs"><span className="text-indigo-300">{issue.issueKey}</span> - {issue.title} ({issue.status.toLowerCase().replaceAll("_", " ")})</button>)}{canEditIssues && <button type="button" disabled={panelBusy || editor.issue.status === "DONE"} onClick={() => openEditor(null, { type: editor.issue?.type === "EPIC" ? "STORY" : "SUBTASK", parentId: editor.issue!.id })} className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-indigo-300">{editor.issue.type === "EPIC" ? "Add issue to epic" : "Add subtask"}</button>}</>}
+          </section>}
+          {editor.issue && <IssueComments key={`comments-${editor.issue.id}`} projectId={projectId} issueId={editor.issue.id} currentUserId={currentUserId} disabled={saving || planningBusy || pendingId !== null || confirmDelete} onBusyChange={setCommentsBusy} />}
+          {editor.issue && <IssueActivity key={`activity-${editor.issue.id}-${editor.issue.status}`} projectId={projectId} issueId={editor.issue.id} />}
           {editorError && <p role="alert" className="mx-6 mb-4 rounded-xl bg-rose-500/10 p-3 text-sm text-rose-300">{editorError}</p>}
           {confirmDelete && <div className="mx-6 mb-5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4"><p className="text-sm font-medium text-rose-200">Delete this issue permanently?</p><p className="mt-1 text-xs text-rose-300/80">This action cannot be undone.</p><div className="mt-3 flex gap-3"><button type="button" disabled={panelBusy} onClick={() => void deleteIssue()} className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold disabled:opacity-50">{saving ? "Deleting…" : "Yes, delete issue"}</button><button type="button" disabled={panelBusy} onClick={() => setConfirmDelete(false)} className="text-xs text-slate-300">Keep issue</button></div></div>}
           <footer className="sticky bottom-0 flex items-center gap-3 border-t border-slate-800 bg-slate-900 p-6">{canEditIssues && editor.issue && <button type="button" disabled={panelBusy} onClick={() => setConfirmDelete(true)} aria-label="Delete issue" className="mr-auto rounded-lg p-2 text-rose-400 hover:bg-rose-500/10 disabled:opacity-50"><Trash2 size={18} /></button>}<button type="button" disabled={panelBusy} onClick={() => setEditor(null)} className="ml-auto rounded-xl px-3 py-2.5 text-sm text-slate-400 hover:text-white disabled:opacity-50">{canEditIssues ? "Cancel" : "Close"}</button>{canEditIssues && <button type="submit" disabled={panelBusy || confirmDelete} className="rounded-xl bg-indigo-500 px-5 py-2.5 text-sm font-semibold hover:bg-indigo-400 disabled:opacity-50">{saving ? "Saving…" : editor.issue ? "Save changes" : "Create issue"}</button>}</footer>

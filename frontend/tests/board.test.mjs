@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues, orderedBacklog } from "../src/utils/board.ts";
+import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues, orderedBacklog, childProgress } from "../src/utils/board.ts";
 
 const today = new Date(2026, 9, 9, 23, 59);
 const base = { id: 1, title: "Review design", description: null, status: "TODO", priority: "HIGH", assigneeId: 7, assigneeName: "Sam Lee", dueDate: "2026-10-09", createdAt: "2026-10-01T12:00:00" };
@@ -55,4 +55,12 @@ test("backlog preserves in-progress work, excludes done and sprint issues, and o
   const source = [{ ...base, id: 12, sprintId: null, planningRank: 1 }, { ...base, id: 5, status: "IN_PROGRESS" }, { ...base, id: 6, status: "DONE" }, { ...base, id: 7, sprintId: 10 }, { ...base, id: 2, sprintId: null, planningRank: 1 }];
   assert.deepEqual(orderedBacklog(source).map(issue => issue.id), [2, 12, 5]);
   assert.deepEqual(source.map(issue => issue.id), [12, 5, 6, 7, 2]);
+});
+
+test("hierarchy progress counts direct children and planning excludes epics and subtasks", () => {
+  const source = [{ ...base, id: 10, type: "EPIC" }, { ...base, id: 11, type: "STORY", parentId: 10, storyPoints: 5 }, { ...base, id: 12, type: "TASK", parentId: 10, storyPoints: 3, status: "DONE" }, { ...base, id: 13, type: "SUBTASK", parentId: 11, status: "DONE" }];
+  assert.deepEqual(childProgress(10, source), { total: 2, done: 1, percent: 50, points: 8, completedPoints: 3 });
+  assert.deepEqual(childProgress(11, source), { total: 1, done: 1, percent: 100, points: 0, completedPoints: 0 });
+  assert.equal(childProgress(999, source).percent, 0);
+  assert.deepEqual(orderedBacklog(source).map(issue => issue.id), [11]);
 });

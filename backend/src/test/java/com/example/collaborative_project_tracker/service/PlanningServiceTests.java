@@ -113,4 +113,11 @@ class PlanningServiceTests {
         var order = inOrder(issues,sprints); order.verify(issues).flush(); order.verify(sprints).delete(planned);
         other.setStatus(SprintStatus.ACTIVE); status(HttpStatus.CONFLICT,() -> service.delete(1L,11L,"owner"));
     }
+    @Test void epicsAndSubtasksCannotBeIndependentlyAllocatedOrReordered() {
+        first.setType(IssueType.EPIC); second.setType(IssueType.SUBTASK); second.setParent(first);
+        status(HttpStatus.CONFLICT, () -> service.move(1L,1L,new MoveIssueSprintRequest(10L),"owner"));
+        status(HttpStatus.CONFLICT, () -> service.move(1L,2L,new MoveIssueSprintRequest(10L),"owner"));
+        status(HttpStatus.CONFLICT, () -> service.reorder(1L,new BacklogOrderRequest(List.of(1L,2L)),"owner"));
+        service.reorder(1L,new BacklogOrderRequest(List.of()),"owner");
+    }
 }

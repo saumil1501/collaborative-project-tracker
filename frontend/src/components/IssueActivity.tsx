@@ -5,10 +5,10 @@ import api from "../services/api";
 
 type Activity = {
   id: number; actorId: number; actorName: string;
-  field: "CREATED" | "TITLE" | "DESCRIPTION" | "STATUS" | "PRIORITY" | "ASSIGNEE" | "DUE_DATE" | "TYPE" | "STORY_POINTS" | "LABELS" | "SPRINT";
+  field: "CREATED" | "TITLE" | "DESCRIPTION" | "STATUS" | "PRIORITY" | "ASSIGNEE" | "DUE_DATE" | "TYPE" | "STORY_POINTS" | "LABELS" | "SPRINT" | "PARENT";
   oldValue: string | null; newValue: string | null; createdAt: string;
 };
-const labels = { CREATED: "created this issue", TITLE: "changed the title", DESCRIPTION: "changed the description", STATUS: "changed the status", PRIORITY: "changed the priority", ASSIGNEE: "changed the assignee", DUE_DATE: "changed the due date", TYPE: "changed the issue type", STORY_POINTS: "changed story points", LABELS: "changed labels", SPRINT: "changed sprint planning" };
+const labels = { CREATED: "created this issue", TITLE: "changed the title", DESCRIPTION: "changed the description", STATUS: "changed the status", PRIORITY: "changed the priority", ASSIGNEE: "changed the assignee", DUE_DATE: "changed the due date", TYPE: "changed the issue type", STORY_POINTS: "changed story points", LABELS: "changed labels", SPRINT: "changed sprint planning", PARENT: "changed the parent issue" };
 const values: Record<string, string> = { TODO: "To do", IN_PROGRESS: "In progress", DONE: "Done", LOW: "Low", MEDIUM: "Medium", HIGH: "High" };
 
 function displayValue(value: string | null, field: Activity["field"]) {

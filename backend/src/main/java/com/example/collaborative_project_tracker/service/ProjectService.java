@@ -96,6 +96,9 @@ public class ProjectService {
         // Delete all issues associated with this project
         comments.deleteAllByProjectId(projectId);
         activities.deleteAllByProjectId(projectId);
+        // Clear self-referencing foreign keys before deleting the project issue set.
+        issueRepository.findByProjectIdOrderByCreatedAtDesc(projectId).forEach(issue -> issue.setParent(null));
+        issueRepository.flush();
         issueRepository.deleteByProjectId(projectId);
 
         // Delete project memberships

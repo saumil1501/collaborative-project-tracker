@@ -40,7 +40,15 @@ public class Issue {
     private Long issueNumber;
 
     @Enumerated(EnumType.STRING)
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.VARCHAR)
     private IssueType type = IssueType.TASK;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_id")
+    private Issue parent;
+
+    public boolean isPlannable() { return getType() != IssueType.EPIC && getType() != IssueType.SUBTASK; }
+    public Sprint getEffectiveSprint() { return getType() == IssueType.SUBTASK && parent != null ? parent.getSprint() : sprint; }
 
     private Integer storyPoints;
 

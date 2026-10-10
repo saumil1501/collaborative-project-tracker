@@ -20,6 +20,13 @@ public class IssueController {
         this.service = service;
     }
 
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ProblemDetail> issueError(org.springframework.web.server.ResponseStatusException error) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(error.getStatusCode(),
+                error.getReason() != null ? error.getReason() : "This issue operation is unavailable");
+        return ResponseEntity.status(error.getStatusCode()).body(problem);
+    }
+
     @PostMapping
     public ResponseEntity<IssueResponse> create(
             @PathVariable Long projectId,

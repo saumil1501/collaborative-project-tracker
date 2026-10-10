@@ -15,5 +15,8 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
     List<Issue> findByProjectIdOrderByCreatedAtDesc(Long projectId);
     List<Issue> findByProjectIdAndAssigneeId(Long projectId, Long assigneeId);
 
+    List<Issue> findByParentId(Long parentId);
+    boolean existsByParentIdAndStatusNot(Long parentId, com.example.collaborative_project_tracker.model.IssueStatus status);
+
     void deleteByProjectId(Long projectId);
 }

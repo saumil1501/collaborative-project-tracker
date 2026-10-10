@@ -18,5 +18,5 @@ public record IssueResponse(
     IssueType type,
     Integer storyPoints,
     java.util.List<String> labels,
-    Long sprintId, Long planningRank
+    Long sprintId, Long planningRank, Long parentId, String parentKey
 ) {}

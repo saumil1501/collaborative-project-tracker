@@ -58,6 +58,7 @@ public class IssueService {
         issue.setIssueNumber(next);
         issue.setPlanningRank(issues.highestPlanningRank(projectId) + 1);
         project.setNextIssueNumber(next + 1);
+        applyHierarchy(issue, request, email, false);
         applyMetadata(issue, request, email, false);
         issue.setTitle(request.title().trim());
         issue.setDescription(request.description());
@@ -101,6 +102,7 @@ public class IssueService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Only the project owner or current assignee can change issue status");
         }
+        validateStatus(issue, request.status());
         if (issue.getStatus() != request.status()) notifications.statusChanged(issue, actor, request.status());
         activityService.record(issue, email, ActivityField.STATUS, issue.getStatus().name(), request.status().name());
         issue.setStatus(request.status());
@@ -117,6 +119,7 @@ public class IssueService {
 
         Issue issue = getIssue(projectId, issueId);
 
+        applyHierarchy(issue, request, email, true);
         boolean assignmentChanged = !Objects.equals(issue.getAssignee() != null ? issue.getAssignee().getId() : null, request.assigneeId());
         AppUser assignee = resolveAssignee(projectId, request.assigneeId());
         IssuePriority priority = request.priority() != null ? request.priority() : IssuePriority.MEDIUM;
@@ -144,6 +147,8 @@ public class IssueService {
     public void delete(Long projectId, Long issueId, String email) {
         requireIssueOwner(projectId, email);
         Issue issue = getIssue(projectId, issueId);
+        if (!issues.findByParentId(issueId).isEmpty())
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Move or delete child issues before deleting their parent");
         comments.deleteAllByIssueId(issueId);
         activities.deleteAllByIssueId(issueId);
         issues.delete(issue);
@@ -177,6 +182,46 @@ public class IssueService {
             activityService.record(issue, email, ActivityField.LABELS, issue.getLabels(), storedLabels);
         }
         issue.setType(type); issue.setStoryPoints(request.storyPoints()); issue.setLabels(storedLabels);
+    }
+
+    private void applyHierarchy(Issue issue, IssueRequest request, String email, boolean record) {
+        IssueType type = request.type() != null ? request.type() : IssueType.TASK;
+        boolean special = type == IssueType.EPIC || type == IssueType.SUBTASK;
+        boolean wasSpecial = issue.getType() == IssueType.EPIC || issue.getType() == IssueType.SUBTASK;
+        if (record && type != issue.getType() && (special || wasSpecial))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Epic and subtask types cannot be converted; create a new issue instead");
+        if (special && request.storyPoints() != null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Estimate stories, tasks and bugs; epics and subtasks have no story points");
+        if (type == IssueType.EPIC && request.parentId() != null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Epics cannot have a parent");
+        if (type == IssueType.SUBTASK && request.parentId() == null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A subtask requires a story, task or bug parent");
+        Issue parent = request.parentId() != null ? getIssue(issue.getProject().getId(), request.parentId()) : null;
+        if (parent != null) {
+            if (Objects.equals(parent.getId(), issue.getId()))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "An issue cannot be its own parent");
+            if (type == IssueType.SUBTASK ? !parent.isPlannable() : parent.getType() != IssueType.EPIC)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Use Epic > Story/Task/Bug > Subtask hierarchy");
+            for (Issue ancestor = parent; ancestor != null; ancestor = ancestor.getParent()) {
+                if (Objects.equals(ancestor.getId(), issue.getId()))
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Parent links cannot form a cycle");
+                if (ancestor.getStatus() == IssueStatus.DONE && issue.getStatus() != IssueStatus.DONE)
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "Reopen the completed parent before adding unfinished work");
+            }
+        }
+        if (record) activityService.record(issue, email, ActivityField.PARENT,
+                issue.getParent() != null ? issue.getParent().getIssueKey() : null, parent != null ? parent.getIssueKey() : null);
+        issue.setParent(parent);
+    }
+
+    private void validateStatus(Issue issue, IssueStatus status) {
+        if (status == IssueStatus.DONE && issues.existsByParentIdAndStatusNot(issue.getId(), IssueStatus.DONE))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Complete all child issues before marking their parent done");
+        if (status != IssueStatus.DONE) {
+            for (Issue ancestor = issue.getParent(); ancestor != null; ancestor = ancestor.getParent())
+                if (ancestor.getStatus() == IssueStatus.DONE)
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "Reopen the completed parent before reopening this issue");
+        }
     }
 
     private String assigneeLabel(AppUser user) {
@@ -224,8 +269,10 @@ public class IssueService {
                 issue.getDueDate(),
                 issue.getCreatedAt(), issue.getIssueKey(), issue.getType(), issue.getStoryPoints(),
                 issue.getLabels() != null ? List.of(issue.getLabels().split(",")) : List.of(),
-                issue.getSprint() != null ? issue.getSprint().getId() : null,
-                issue.getPlanningRank() != null ? issue.getPlanningRank() : issue.getId()
+                issue.getEffectiveSprint() != null ? issue.getEffectiveSprint().getId() : null,
+                issue.getPlanningRank() != null ? issue.getPlanningRank() : issue.getId(),
+                issue.getParent() != null ? issue.getParent().getId() : null,
+                issue.getParent() != null ? issue.getParent().getIssueKey() : null
         );
     }
 }
