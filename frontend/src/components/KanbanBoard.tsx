@@ -5,9 +5,10 @@ import api from "../services/api";
 import IssueComments from "./IssueComments";
 import IssueActivity from "./IssueActivity";
 import ProjectSettings from "./ProjectSettings";
+import SprintPlanning from "./SprintPlanning";
 import type { ProjectDetails } from "./ProjectSettings";
 import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues } from "../utils/board";
-import type { Issue, Priority, Status } from "../utils/board";
+import type { Issue, Priority, Status, Sprint } from "../utils/board";
 
 type Member = { userId: number; name: string; email: string; role: string };
 const columns = [
@@ -25,6 +26,12 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
 }) {
   const [showSettings, setShowSettings] = useState(initialSettings);
   const openedInitialIssue = useRef(false);
+  const [view, setView] = useState<"all" | "backlog" | "sprint">("all");
+  const [sprints, setSprints] = useState<Sprint[]>([]);
+  const [planningLoading, setPlanningLoading] = useState(true);
+  const [planningError, setPlanningError] = useState("");
+  const [planningBusy, setPlanningBusy] = useState(false);
+  const [selectedSprintId, setSelectedSprintId] = useState<number | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,7 +48,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
   const [editor, setEditor] = useState<{ issue: Issue | null } | null>(null);
   const [saving, setSaving] = useState(false);
   const [commentsBusy, setCommentsBusy] = useState(false);
-  const panelBusy = saving || commentsBusy;
+  const panelBusy = saving || commentsBusy || planningBusy;
   const [editorError, setEditorError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [issueType, setIssueType] = useState<"BUG" | "TASK" | "STORY">("TASK");
@@ -60,7 +67,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
   const canChangeStatus = (issue: Issue) => canChangeIssueStatus(issue, currentUserId, currentMemberRole);
   const filtersActive = Boolean(query || assigneeFilter || priorityFilter || mineOnly || typeFilter);
 
-  const loadBoard = useCallback((signal?: AbortSignal) => {
+  const loadBoard = useCallback((signal?: AbortSignal, throwOnError = false) => {
     return Promise.all([
       api.get<Issue[]>(`/projects/${projectId}/issues`, { signal }),
       api.get<Member[]>(`/projects/${projectId}/members`, { signal }),
@@ -81,6 +88,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
       }
     }).catch(() => {
       if (!signal?.aborted) setError("We couldn't load this board. Please try again.");
+      if (throwOnError) throw new Error("Issue refresh failed");
     }).finally(() => {
       if (!signal?.aborted) setLoading(false);
     });
@@ -91,6 +99,24 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
     void loadBoard(controller.signal);
     return () => controller.abort();
   }, [loadBoard]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api.get<Sprint[]>(`/projects/${projectId}/sprints`, { signal: controller.signal })
+      .then(({ data }) => { if (!controller.signal.aborted) { setSprints(data); setPlanningError(""); } })
+      .catch(() => { if (!controller.signal.aborted) setPlanningError("We couldn't load sprint planning. Your issue board is still available."); })
+      .finally(() => { if (!controller.signal.aborted) setPlanningLoading(false); });
+    return () => controller.abort();
+  }, [projectId]);
+
+  async function refreshPlanning() {
+    setPlanningLoading(true);
+    try {
+      const [{ data }] = await Promise.all([api.get<Sprint[]>(`/projects/${projectId}/sprints`), loadBoard(undefined, true)]);
+      setSprints(data); setPlanningError("");
+    } catch (error) { setPlanningError("We couldn't refresh sprint planning. Please reload planning."); throw error; }
+    finally { setPlanningLoading(false); }
+  }
 
   useEffect(() => {
     if (!notice) return;
@@ -114,7 +140,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
   }, [editor]);
 
   function openEditor(issue: Issue | null) {
-    if (mutationLock.current || (!issue && !canEditIssues)) return;
+    if (planningBusy || mutationLock.current || (!issue && !canEditIssues)) return;
     setIssueType(issue?.type || "TASK");
     setStoryPoints(issue?.storyPoints?.toString() || "");
     setLabels((issue?.labels || []).join(", "));
@@ -131,7 +157,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
 
   async function saveIssue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canEditIssues || commentsBusy) return;
+    if (!canEditIssues || commentsBusy || planningBusy) return;
     if (!title.trim()) { setEditorError("Give your issue a title."); return; }
     const issueLabels = labels.split(",").map(label => label.trim()).filter(Boolean);
     if (issueLabels.length > 10 || issueLabels.some(label => !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,29}$/.test(label))) {
@@ -147,7 +173,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
         ? await api.put<Issue>(`/projects/${projectId}/issues/${editor.issue.id}`, payload)
         : await api.post<Issue>(`/projects/${projectId}/issues`, payload);
       setIssues(previous => editor?.issue ? previous.map(issue => issue.id === data.id ? data : issue) : [data, ...previous]);
-      setNotice(editor?.issue ? "Issue updated." : "Issue created. Let's get it moving!");
+      setNotice(editor?.issue ? "Issue updated." : "Issue created in the backlog.");
       setEditor(null);
     } catch {
       setEditorError("We couldn't save your issue. Your changes are still here; please try again.");
@@ -158,7 +184,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
   }
 
   async function changeStatus(issue: Issue, status: Status) {
-    if (!canChangeStatus(issue) || issue.status === status || mutationLock.current) return;
+    if (planningBusy || !canChangeStatus(issue) || issue.status === status || mutationLock.current) return;
     mutationLock.current = true;
     setPendingId(issue.id);
     setError("");
@@ -194,21 +220,30 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
     }
   }
 
-  const filteredIssues = filterIssues(issues, { query, priority: priorityFilter, assignee: assigneeFilter, mineOnly, currentUserId });
+  const focusedSprint = sprints.find(sprint => sprint.id === selectedSprintId && sprint.status !== "COMPLETED")
+    || sprints.find(sprint => sprint.status === "ACTIVE") || sprints.find(sprint => sprint.status === "PLANNED");
+  const scopedIssues = view === "sprint" ? issues.filter(issue => Boolean(focusedSprint) && issue.sprintId === focusedSprint?.id) : issues;
+  const filteredIssues = filterIssues(scopedIssues, { query, priority: priorityFilter, assignee: assigneeFilter, mineOnly, currentUserId });
   const visibleIssues = filteredIssues.filter(issue => !typeFilter || (issue.type || "TASK") === typeFilter);
-  const summary = summarizeIssues(issues);
+  const summary = summarizeIssues(scopedIssues);
 
   return (
     <section className="mt-8" aria-label={`${projectName} board`}>
-      <button onClick={onBack} disabled={pendingId !== null} className="mb-6 flex items-center gap-2 text-sm text-slate-400 hover:text-white disabled:opacity-50"><ArrowLeft size={16} /> All projects</button>
+      <button onClick={onBack} disabled={pendingId !== null || planningBusy} className="mb-6 flex items-center gap-2 text-sm text-slate-400 hover:text-white disabled:opacity-50"><ArrowLeft size={16} /> All projects</button>
       <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0"><p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-indigo-400">Project workspace</p><h2 className="break-words text-3xl font-semibold tracking-tight sm:text-4xl">{projectName}</h2><p className="mt-2 text-sm text-slate-400">A little clarity. A lot of progress.</p></div>
         <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={() => setShowSettings(true)} disabled={loading || pendingId !== null} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-50"><Settings size={17} /> Project settings</button>
-          {canEditIssues && <button onClick={() => openEditor(null)} disabled={loading || Boolean(error && !issues.length) || pendingId !== null} className="flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold shadow-lg shadow-indigo-500/15 hover:bg-indigo-400 disabled:opacity-50"><Plus size={17} /> New issue</button>}
+          <button type="button" onClick={() => setShowSettings(true)} disabled={loading || pendingId !== null || planningBusy} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-50"><Settings size={17} /> Project settings</button>
+          {canEditIssues && <button onClick={() => openEditor(null)} disabled={loading || Boolean(error && !issues.length) || pendingId !== null || planningBusy} className="flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold shadow-lg shadow-indigo-500/15 hover:bg-indigo-400 disabled:opacity-50"><Plus size={17} /> New issue</button>}
         </div>
       </div>
 
+      <nav aria-label="Project views" className="mb-6 flex flex-wrap gap-2 border-b border-slate-800 pb-4">{([{ id: "all", label: "All issues" }, { id: "backlog", label: "Backlog" }, { id: "sprint", label: "Sprint board" }] as const).map(tab => <button key={tab.id} type="button" disabled={planningBusy || panelBusy || pendingId !== null} aria-pressed={view === tab.id} onClick={() => setView(tab.id)} className={`rounded-lg px-4 py-2 text-sm disabled:opacity-50 ${view === tab.id ? "bg-indigo-500/15 text-indigo-300" : "text-slate-400 hover:bg-slate-800"}`}>{tab.label}</button>)}</nav>
+      {view !== "all" && planningLoading && <p role="status" className="mb-5 text-sm text-slate-400">Loading sprint planning...</p>}
+      {view !== "all" && planningError && <div role="alert" className="mb-5 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300">{planningError}<button disabled={planningBusy} type="button" onClick={() => void refreshPlanning().catch(() => {})} className="ml-2 underline">Reload planning</button></div>}
+      {view !== "all" && !planningError && <SprintPlanning projectId={projectId} issues={issues} sprints={sprints} canManage={canEditIssues} blocked={loading || planningLoading || Boolean(error) || panelBusy || pendingId !== null} compact={view === "sprint"} focusedSprint={focusedSprint} onSelect={setSelectedSprintId} onOpenIssue={openEditor} onChanged={refreshPlanning} onCompleted={() => setView("backlog")} onBusyChange={setPlanningBusy} />}
+      {view === "backlog" && error && <div role="alert" className="mb-5 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300">{error}<button type="button" disabled={planningBusy || loading} onClick={() => { setLoading(true); void loadBoard(); }} className="ml-2 underline">Reload board</button></div>}
+      {view !== "backlog" && <>
       <div className="mb-6 grid grid-cols-3 gap-2 sm:gap-4" aria-label="Board summary">
         {[{ label: "Total issues", value: summary.total, color: "text-white" }, { label: "Completed", value: summary.completed, color: "text-emerald-400" }, { label: "Overdue", value: summary.overdue, color: "text-rose-400" }].map(stat => <div key={stat.label} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3 sm:p-5"><p className="text-xs text-slate-400 sm:text-sm">{stat.label}</p><p className={`mt-2 text-2xl font-semibold ${stat.color}`}>{loading ? "—" : stat.value}</p></div>)}
       </div>
@@ -220,7 +255,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
           <select aria-label="Filter by issue type" value={typeFilter} onChange={event => setTypeFilter(event.target.value)} className={`${fieldClass} min-w-0 flex-[1_1_130px]`}><option value="">All types</option><option value="BUG">Bug</option><option value="TASK">Task</option><option value="STORY">Story</option></select>
           <select aria-label="Filter by priority" value={priorityFilter} onChange={event => setPriorityFilter(event.target.value)} className={`${fieldClass} min-w-0 flex-[1_1_130px]`}><option value="">All priorities</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select>
         </div>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><button aria-pressed={mineOnly} onClick={() => setMineOnly(!mineOnly)} className={`rounded-lg border px-3 py-1.5 text-xs transition ${mineOnly ? "border-indigo-500/50 bg-indigo-500/15 text-indigo-300" : "border-slate-700 text-slate-400 hover:text-white"}`}>Assigned to me</button><div className="flex items-center gap-3 text-xs text-slate-500"><span>{loading ? "Loading issues…" : `${visibleIssues.length} of ${issues.length} issues`}</span>{filtersActive && <button onClick={() => { setQuery(""); setAssigneeFilter(""); setPriorityFilter(""); setMineOnly(false); setTypeFilter(""); }} className="text-indigo-300 hover:text-indigo-200">Clear filters</button>}</div></div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><button aria-pressed={mineOnly} onClick={() => setMineOnly(!mineOnly)} className={`rounded-lg border px-3 py-1.5 text-xs transition ${mineOnly ? "border-indigo-500/50 bg-indigo-500/15 text-indigo-300" : "border-slate-700 text-slate-400 hover:text-white"}`}>Assigned to me</button><div className="flex items-center gap-3 text-xs text-slate-500"><span>{loading ? "Loading issues…" : `${visibleIssues.length} of ${scopedIssues.length} issues`}</span>{filtersActive && <button onClick={() => { setQuery(""); setAssigneeFilter(""); setPriorityFilter(""); setMineOnly(false); setTypeFilter(""); }} className="text-indigo-300 hover:text-indigo-200">Clear filters</button>}</div></div>
       </div>
 
       {error && <div role="alert" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300"><span>{error}</span><button disabled={pendingId !== null || loading} onClick={() => { setLoading(true); void loadBoard(); }} className="font-semibold underline">Reload board</button></div>}
@@ -233,21 +268,22 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
           return <section key={column.status} aria-label={column.label} onDragOver={event => { if (draggingId !== null && pendingId === null && issues.some(issue => issue.id === draggingId && canChangeStatus(issue))) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropTarget(column.status); } }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null); }} onDrop={event => { event.preventDefault(); const issue = issues.find(item => item.id === draggingId); setDraggingId(null); setDropTarget(null); if (issue) void changeStatus(issue, column.status); }} className={`min-h-64 rounded-2xl border p-3 transition-colors sm:p-4 ${dropTarget === column.status ? "border-indigo-400 bg-indigo-500/10" : "border-slate-800 bg-slate-900/50"}`}>
             <div className="mb-5 flex items-center gap-2.5"><span className={`h-2 w-2 rounded-full ${column.color}`} /><h3 className="text-sm font-semibold">{column.label}</h3><span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{loading ? "—" : columnIssues.length}</span>{canEditIssues && <button disabled={loading || pendingId !== null || Boolean(error && !issues.length)} onClick={() => openEditor(null)} aria-label={`Create an issue (starts in To do)`} className="ml-auto rounded-lg p-1 text-slate-500 hover:bg-slate-800 hover:text-white disabled:opacity-40"><Plus size={17} /></button>}</div>
             <div className="space-y-3">
-              {loading ? [0, 1].map(item => <div key={item} className="animate-pulse rounded-xl border border-slate-700/60 bg-slate-800/60 p-4" aria-hidden="true"><div className="mb-4 h-3 w-16 rounded bg-slate-700" /><div className="mb-2 h-4 w-4/5 rounded bg-slate-700" /><div className="mb-6 h-3 w-3/5 rounded bg-slate-700" /><div className="h-7 w-full rounded bg-slate-700" /></div>) : columnIssues.map(issue => <article key={issue.id} draggable={canChangeStatus(issue) && pendingId === null} onDragStart={event => { if (!canChangeStatus(issue)) { event.preventDefault(); return; } setDraggingId(issue.id); event.dataTransfer.setData("text/plain", String(issue.id)); event.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => { setDraggingId(null); setDropTarget(null); }} className={`group rounded-xl border border-slate-700/70 bg-slate-800/80 p-4 shadow-sm transition hover:border-slate-600 ${draggingId === issue.id ? "opacity-40" : ""} ${pendingId === issue.id ? "animate-pulse" : ""}`}>
+              {loading ? [0, 1].map(item => <div key={item} className="animate-pulse rounded-xl border border-slate-700/60 bg-slate-800/60 p-4" aria-hidden="true"><div className="mb-4 h-3 w-16 rounded bg-slate-700" /><div className="mb-2 h-4 w-4/5 rounded bg-slate-700" /><div className="mb-6 h-3 w-3/5 rounded bg-slate-700" /><div className="h-7 w-full rounded bg-slate-700" /></div>) : columnIssues.map(issue => <article key={issue.id} draggable={canChangeStatus(issue) && pendingId === null && !planningBusy} onDragStart={event => { if (!canChangeStatus(issue)) { event.preventDefault(); return; } setDraggingId(issue.id); event.dataTransfer.setData("text/plain", String(issue.id)); event.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => { setDraggingId(null); setDropTarget(null); }} className={`group rounded-xl border border-slate-700/70 bg-slate-800/80 p-4 shadow-sm transition hover:border-slate-600 ${draggingId === issue.id ? "opacity-40" : ""} ${pendingId === issue.id ? "animate-pulse" : ""}`}>
                 <div className="mb-3 flex items-center justify-between"><span className="text-[11px] font-medium tracking-wide text-slate-500">{issue.issueKey || `ISSUE-${issue.id}`}</span>{canChangeStatus(issue) && <GripVertical size={15} aria-hidden="true" className="cursor-grab text-slate-600 group-hover:text-slate-400" />}</div>
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-indigo-300"><span className="rounded bg-slate-800 px-2 py-1">{issue.type || "TASK"}</span>{issue.storyPoints != null && <span>{issue.storyPoints} points</span>}</div>
-                <button onClick={() => openEditor(issue)} disabled={pendingId !== null} className="block w-full text-left disabled:opacity-60"><h4 className="break-words text-sm font-semibold leading-6 text-slate-100 group-hover:text-indigo-200">{issue.title}</h4><p className="mt-1.5 line-clamp-2 break-words text-xs leading-5 text-slate-400">{issue.description || "Add a description to bring this issue into focus."}</p></button>
+                <button onClick={() => openEditor(issue)} disabled={pendingId !== null || planningBusy} className="block w-full text-left disabled:opacity-60"><h4 className="break-words text-sm font-semibold leading-6 text-slate-100 group-hover:text-indigo-200">{issue.title}</h4><p className="mt-1.5 line-clamp-2 break-words text-xs leading-5 text-slate-400">{issue.description || "Add a description to bring this issue into focus."}</p></button>
                 <div className="my-4 flex flex-wrap items-center gap-2"><span className={`rounded-md px-2 py-1 text-[11px] font-medium ${priorityColors[issue.priority]}`}>{issue.priority.charAt(0) + issue.priority.slice(1).toLowerCase()} priority</span>{issue.dueDate && <span className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] ${isOverdue(issue) ? "bg-rose-500/10 text-rose-300" : "bg-slate-700/50 text-slate-400"}`}><CalendarDays size={12} />{new Date(`${issue.dueDate}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}{isOverdue(issue) && " · Overdue"}</span>}</div>
                 {Boolean(issue.labels?.length) && <div className="flex flex-wrap gap-1">{issue.labels?.map(label => <span key={label} className="max-w-full break-all rounded bg-slate-800 px-2 py-1 text-[10px] text-slate-300">{label}</span>)}</div>}
-                <div className="flex items-center gap-2 border-t border-slate-700/60 pt-3"><span title={issue.assigneeName || "Unassigned"} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-indigo-400/20 bg-indigo-400/10 text-[10px] font-semibold text-indigo-300">{initials(issue.assigneeName)}</span><span className="min-w-0 flex-1 truncate text-xs text-slate-400">{issue.assigneeName || "Unassigned"}</span><select aria-label={`Status for ${issue.title}`} disabled={!canChangeStatus(issue) || pendingId !== null} title={canChangeStatus(issue) ? "Change status" : "Only the project owner or current assignee can change status"} value={issue.status} onChange={event => void changeStatus(issue, event.target.value as Status)} className="max-w-32 rounded-lg border border-slate-700 bg-slate-900 px-1.5 py-1 text-[11px] text-slate-300 disabled:opacity-50">{columns.map(option => <option key={option.status} value={option.status}>{option.label}</option>)}</select></div>
+                <div className="flex items-center gap-2 border-t border-slate-700/60 pt-3"><span title={issue.assigneeName || "Unassigned"} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-indigo-400/20 bg-indigo-400/10 text-[10px] font-semibold text-indigo-300">{initials(issue.assigneeName)}</span><span className="min-w-0 flex-1 truncate text-xs text-slate-400">{issue.assigneeName || "Unassigned"}</span><select aria-label={`Status for ${issue.title}`} disabled={!canChangeStatus(issue) || pendingId !== null || planningBusy} title={canChangeStatus(issue) ? "Change status" : "Only the project owner or current assignee can change status"} value={issue.status} onChange={event => void changeStatus(issue, event.target.value as Status)} className="max-w-32 rounded-lg border border-slate-700 bg-slate-900 px-1.5 py-1 text-[11px] text-slate-300 disabled:opacity-50">{columns.map(option => <option key={option.status} value={option.status}>{option.label}</option>)}</select></div>
               </article>)}
-              {!loading && !columnIssues.length && <div className="rounded-xl border border-dashed border-slate-700/70 px-4 py-10 text-center"><Icon size={24} className="mx-auto mb-3 text-slate-600" /><p className="text-sm text-slate-400">{filtersActive ? "No matching issues" : "Room for what's next"}</p><p className="mt-2 text-xs leading-5 text-slate-500">{filtersActive ? "Try changing or clearing your filters." : column.status === "TODO" ? "Create an issue to get started." : `Move an issue here when it's ${column.status === "DONE" ? "complete" : "underway"}.`}</p></div>}
+              {!loading && !columnIssues.length && <div className="rounded-xl border border-dashed border-slate-700/70 px-4 py-10 text-center"><Icon size={24} className="mx-auto mb-3 text-slate-600" /><p className="text-sm text-slate-400">{filtersActive ? "No matching issues" : "Room for what's next"}</p><p className="mt-2 text-xs leading-5 text-slate-500">{filtersActive ? "Try changing or clearing your filters." : column.status === "TODO" ? view === "sprint" ? "Add issues to this sprint from the Backlog view." : "Create an issue to get started." : `Move an issue here when it's ${column.status === "DONE" ? "complete" : "underway"}.`}</p></div>}
             </div>
           </section>;
         })}
       </div>
       <p className="mt-4 text-xs text-slate-500">Owners and current assignees can change status using drag and drop or the status menu. Only the owner can create, edit other details or delete issues. Members can join the discussion.</p>
 
+      </>}
       {showSettings && <ProjectSettings projectId={projectId} currentUserId={currentUserId} onProjectUpdated={onProjectUpdated} onBack={onBack} onClose={() => { setShowSettings(false); setLoading(true); void loadBoard(); }} />}
 
       {editor && <dialog ref={dialog} aria-labelledby="issue-panel-title" onCancel={event => { event.preventDefault(); if (!panelBusy) setEditor(null); }} onClick={event => { if (event.target === event.currentTarget && !panelBusy) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) setEditor(null); } }} className="issue-panel fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-none w-full max-w-lg border-l border-slate-700 bg-slate-900 p-0 text-slate-100 shadow-2xl">

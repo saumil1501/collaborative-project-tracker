@@ -21,8 +21,9 @@ public class ProjectService {
     private final IssueCommentRepository comments;
     private final IssueActivityRepository activities;
     private final ProjectLeaveRequestRepository leaveRequests;
+    private final SprintRepository sprints;
 
-    public ProjectService(ProjectRepository projects, UserRepository users, ProjectMembershipRepository memberships, IssueRepository issueRepository, IssueCommentRepository comments, IssueActivityRepository activities, ProjectLeaveRequestRepository leaveRequests) {
+    public ProjectService(ProjectRepository projects, UserRepository users, ProjectMembershipRepository memberships, IssueRepository issueRepository, IssueCommentRepository comments, IssueActivityRepository activities, ProjectLeaveRequestRepository leaveRequests, SprintRepository sprints) {
         this.projects = projects;
         this.users = users;
 		this.memberships = memberships;
@@ -30,6 +31,7 @@ public class ProjectService {
         this.comments = comments;
         this.activities = activities;
         this.leaveRequests = leaveRequests;
+        this.sprints = sprints;
     }
 
     @Transactional
@@ -99,6 +101,8 @@ public class ProjectService {
         // Delete project memberships
         leaveRequests.deleteAllByProjectId(projectId);
         memberships.deleteByProjectId(projectId);
+
+        sprints.deleteByProjectId(projectId);
 
         // Finally, delete the project
         projects.delete(project);

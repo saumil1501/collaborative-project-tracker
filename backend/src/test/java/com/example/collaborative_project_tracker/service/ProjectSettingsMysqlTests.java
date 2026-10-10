@@ -32,11 +32,60 @@ class ProjectSettingsMysqlTests {
     @Autowired CommentService commentService;
     @Autowired EntityManager entityManager;
     @Autowired NotificationService notifications;
+    @Autowired PlanningService planning;
+    @Autowired SprintRepository sprints;
 
     private AppUser user(String name) {
         AppUser user = new AppUser(); user.setName(name);
         user.setEmail("settings-check-" + UUID.randomUUID() + "@example.invalid");
         user.setPassword("unused-test-hash"); return users.save(user);
+    }
+
+    @Test
+    void sprintPlanningPersistsOrderOutcomesHistoryAndProjectDeletion() {
+        AppUser owner = user("Planning owner"), member = user("Planning member");
+        var project = projectService.create(new CreateProjectRequest("Sprint verification", null), owner.getEmail());
+        membershipService.addMember(project.id(), new AddMemberRequest(member.getEmail()), owner.getEmail());
+        var first = issueService.create(project.id(), new IssueRequest("First issue", null, null, member.getId(), null, IssueType.STORY, 3, java.util.List.of()), owner.getEmail());
+        var second = issueService.create(project.id(), new IssueRequest("Second issue", null, null, owner.getId(), null, IssueType.TASK, 5, java.util.List.of()), owner.getEmail());
+        planning.reorder(project.id(), new BacklogOrderRequest(java.util.List.of(second.id(), first.id())), owner.getEmail());
+        entityManager.flush(); entityManager.clear();
+        assertEquals(1L, issues.findById(second.id()).orElseThrow().getPlanningRank());
+        assertEquals(2L, issues.findById(first.id()).orElseThrow().getPlanningRank());
+        var request = new SprintRequest("Iteration 1", "Ship the first increment", java.time.LocalDate.now(), java.time.LocalDate.now().plusDays(7));
+        var sprint = planning.create(project.id(), request, owner.getEmail());
+        var other = planning.create(project.id(), new SprintRequest("Iteration 2", null, request.startDate(), request.endDate()), owner.getEmail());
+        planning.move(project.id(), first.id(), new MoveIssueSprintRequest(sprint.id()), owner.getEmail());
+        planning.move(project.id(), second.id(), new MoveIssueSprintRequest(sprint.id()), owner.getEmail());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+            () -> planning.move(project.id(), first.id(), new MoveIssueSprintRequest(null), member.getEmail())).getStatusCode());
+        assertEquals(2, planning.list(project.id(), member.getEmail()).size());
+        var active = planning.start(project.id(), sprint.id(), owner.getEmail());
+        assertEquals(8, active.committedPoints()); assertEquals(2, active.committedIssueCount());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ResponseStatusException.class,
+            () -> planning.start(project.id(), other.id(), owner.getEmail())).getStatusCode());
+        issueService.updateStatus(project.id(), first.id(), new UpdateIssueStatusRequest(IssueStatus.IN_PROGRESS), member.getEmail());
+        issueService.updateStatus(project.id(), second.id(), new UpdateIssueStatusRequest(IssueStatus.DONE), owner.getEmail());
+        var completed = planning.complete(project.id(), sprint.id(), owner.getEmail());
+        assertEquals(2, completed.snapshots().size());
+        entityManager.flush(); entityManager.clear();
+        assertNull(issues.findById(first.id()).orElseThrow().getSprint());
+        assertEquals(IssueStatus.IN_PROGRESS, issues.findById(first.id()).orElseThrow().getStatus());
+        assertNull(issues.findById(second.id()).orElseThrow().getSprint());
+        assertEquals(IssueStatus.DONE, issues.findById(second.id()).orElseThrow().getStatus());
+        issueService.update(project.id(), second.id(), new IssueRequest("Later title", null, null, owner.getId(), null, IssueType.TASK, 13, java.util.List.of()), owner.getEmail());
+        issueService.delete(project.id(), second.id(), owner.getEmail());
+        entityManager.flush(); entityManager.clear();
+        var archived = planning.list(project.id(), owner.getEmail()).stream().filter(item -> item.id().equals(sprint.id())).findFirst().orElseThrow();
+        var snapshot = archived.snapshots().stream().filter(item -> item.issueId().equals(second.id())).findFirst().orElseThrow();
+        assertEquals("Second issue", snapshot.title()); assertEquals(5, snapshot.storyPoints()); assertEquals(IssueStatus.DONE, snapshot.status());
+        assertTrue(activities.findByIssueIdOrderByCreatedAtDescIdDesc(first.id()).stream().anyMatch(item -> item.getField() == ActivityField.SPRINT));
+        planning.move(project.id(), first.id(), new MoveIssueSprintRequest(other.id()), owner.getEmail());
+        planning.delete(project.id(), other.id(), owner.getEmail());
+        entityManager.flush(); entityManager.clear();
+        assertNull(issues.findById(first.id()).orElseThrow().getSprint()); assertFalse(sprints.existsById(other.id()));
+        projectService.delete(project.id(), owner.getEmail()); entityManager.flush(); entityManager.clear();
+        assertFalse(projects.existsById(project.id())); assertTrue(sprints.findByProjectIdOrderByIdDesc(project.id()).isEmpty());
     }
 
     @Test

@@ -61,6 +61,21 @@ A full-stack, multi-user project management application built using **Spring Boo
 - View total, completed, and overdue counts, with overdue badges on unfinished issues
 - Responsive dark layout with loading placeholders, empty states, and save feedback
 
+### Backlog and Sprint Planning
+- Separate All issues, Backlog, and Sprint board views, with explicit planning refresh and failed-load recovery
+- Ordered backlog of unfinished issues outside a sprint; owners reorder with accessible up/down controls
+- Existing issues use their IDs as initial ordering; new issues append to the backlog
+- Owners create, edit or delete planned sprints with a name, goal, start date and end date
+- Owners move unfinished issues between the backlog and planned/active sprints; planning changes appear in issue activity
+- Only one active sprint per project; starting requires unfinished work and captures initial issue/point commitments
+- Completing a sprint atomically snapshots the final scope, statuses, estimates and assignees
+- Unfinished work returns to the backlog without resetting status; done work remains done
+- Completed sprint reports remain unchanged after subsequent issue edits or deletion; completed sprints cannot be edited, reopened or deleted
+- Members can view planning and discuss issues; existing owner/assignee status permissions remain unchanged
+- Project locks serialize planning with issue/status/membership changes; reorder requests must match the current unfinished backlog membership
+- Deleting a project removes its sprint records and snapshots alongside existing issue data
+- Activity event fields use a VARCHAR mapping so new event types can be added without relying on a fixed MySQL enum definition; startup schema updates preserve existing values
+
 ### Issue Comments
 - Project members can read and add plain-text comments in the issue side panel
 - Only a comment's author can edit or delete it, including when another member owns the project
@@ -132,7 +147,7 @@ Spring Security handles authentication and session management. Authorization is 
 
 ## Database Design
 
-The application uses eight core domain entities:
+The application uses nine core domain entities:
 
 | Entity | Description |
 |---|---|
@@ -144,6 +159,7 @@ The application uses eight core domain entities:
 | IssueActivity | Stores issue changes, actors, timestamps, and previous/new values |
 | ProjectLeaveRequest | Stores each member's latest request to leave and its decision status |
 | Notification | Stores recipient-specific notifications, historical target IDs, and read timestamps |
+| Sprint | Stores planning dates, lifecycle, initial commitments, and embedded immutable completion snapshots |
 
 ### Entity Relationships
 
@@ -212,6 +228,21 @@ Requests use `PENDING`, `APPROVED`, `REJECTED`, and `CANCELLED` states. A member
 | PUT | `/api/projects/{projectId}/issues/{issueId}` | Update issue (owner only) |
 | PATCH | `/api/projects/{projectId}/issues/{issueId}/status` | Change status (owner or current assignee only) |
 | DELETE | `/api/projects/{projectId}/issues/{issueId}` | Delete issue (owner only) |
+
+### Planning
+
+All routes require project membership. All mutations require the project owner.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET / POST | `/api/projects/{projectId}/sprints` | List sprints / create a planned sprint |
+| PUT / DELETE | `/api/projects/{projectId}/sprints/{sprintId}` | Edit / delete a planned sprint |
+| PATCH | `/api/projects/{projectId}/sprints/{sprintId}/start` | Start a planned sprint; one active sprint per project |
+| PATCH | `/api/projects/{projectId}/sprints/{sprintId}/complete` | Snapshot outcomes and return unfinished work to backlog |
+| PATCH | `/api/projects/{projectId}/issues/{issueId}/sprint` | Move unfinished issue using `{ "sprintId": 1 }` or `null` for backlog |
+| PUT | `/api/projects/{projectId}/backlog/order` | Set order using `{ "issueIds": [2, 1] }` with the exact current backlog IDs |
+
+Sprint creation and editing use `{ "name": "Iteration 1", "goal": "Deliver login", "startDate": "2026-10-10", "endDate": "2026-10-24" }`. End date must be on or after start date. Starting records the actual timestamp independently of scheduled dates. Dates do not automatically start or complete a sprint.
 
 ### Notifications
 
@@ -405,3 +436,5 @@ collaborative-project-tracker/
 Developed as a full-stack software engineering project to explore REST API development, relational database design, session-based authentication, authorization, and collaborative task management.
 
 Structured issue UI checks: build the frontend, then run `node tests/structured-issues.browser.mjs` with `BOARD_TEST_STATIC=1` and Playwright available. Tests use mock API data. `ActivityServiceTests` covers metadata validation, normalization, audit changes and legacy numbering; the opt-in `ProjectSettingsMysqlTests` also verifies persistence, stable keys, owner-only metadata and number preservation after deletion.
+
+Planning verification: include `PlanningServiceTests` in backend unit checks. The opt-in live MySQL test suite verifies order persistence, lifecycle, permissions, snapshot survival after issue deletion, and project cleanup. Build the frontend and run `node tests/planning.browser.mjs` with Playwright available to check create/edit/move/reorder/start/complete/delete, failure recovery, sprint board filtering, member controls, reports and mobile layout using mock API data.

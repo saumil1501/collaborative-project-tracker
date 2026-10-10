@@ -129,7 +129,7 @@ class CommentServiceTests {
         Project project = issue.getProject(); project.setOwner(comment.getAuthor());
         when(projects.findLockedById(1L)).thenReturn(Optional.of(project));
         new ProjectService(projects, users, projectMemberships, issues, comments,
-                mock(IssueActivityRepository.class), mock(ProjectLeaveRequestRepository.class)).delete(1L, "author@example.test");
+                mock(IssueActivityRepository.class), mock(ProjectLeaveRequestRepository.class), mock(SprintRepository.class)).delete(1L, "author@example.test");
         var order = inOrder(comments, issues, projectMemberships, projects);
         order.verify(comments).deleteAllByProjectId(1L);
         order.verify(issues).deleteByProjectId(1L);

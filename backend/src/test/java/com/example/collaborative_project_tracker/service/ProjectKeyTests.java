@@ -21,7 +21,7 @@ class ProjectKeyTests {
         when(users.findByEmailIgnoreCase(owner.getEmail())).thenReturn(Optional.of(owner));
         when(projects.saveAndFlush(any())).thenAnswer(call -> { Project project = call.getArgument(0); project.setId(42L); return project; });
         service = new ProjectService(projects, users, mock(ProjectMembershipRepository.class), mock(IssueRepository.class),
-            mock(IssueCommentRepository.class), mock(IssueActivityRepository.class), mock(ProjectLeaveRequestRepository.class));
+            mock(IssueCommentRepository.class), mock(IssueActivityRepository.class), mock(ProjectLeaveRequestRepository.class), mock(SprintRepository.class));
     }
     @Test void acceptsPermanentCustomKeyAndAutomaticFallback() {
         assertEquals("WEB", service.create(new CreateProjectRequest("Project", null, "WEB"), owner.getEmail()).projectKey());

@@ -23,7 +23,8 @@ public class IssueActivity {
     private AppUser actor;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false)
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.VARCHAR)
+    @Column(nullable = false, updatable = false, length = 40)
     private ActivityField field;
 
     @Column(length = 2000, updatable = false)

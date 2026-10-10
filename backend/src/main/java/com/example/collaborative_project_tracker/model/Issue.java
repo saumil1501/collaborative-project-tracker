@@ -32,6 +32,10 @@ public class Issue {
 
     private LocalDate dueDate;
 
+    @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "sprint_id")
+    private Sprint sprint;
+    private Long planningRank;
+
     @Column(name = "issue_number")
     private Long issueNumber;
 

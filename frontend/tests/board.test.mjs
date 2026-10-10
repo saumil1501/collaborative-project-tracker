@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues } from "../src/utils/board.ts";
+import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues, orderedBacklog } from "../src/utils/board.ts";
 
 const today = new Date(2026, 9, 9, 23, 59);
 const base = { id: 1, title: "Review design", description: null, status: "TODO", priority: "HIGH", assigneeId: 7, assigneeName: "Sam Lee", dueDate: "2026-10-09", createdAt: "2026-10-01T12:00:00" };
@@ -49,4 +49,10 @@ test("avatar initials handle whitespace, single names, and unassigned issues", (
   assert.equal(initials("Sam"), "S");
   assert.equal(initials(null), "—");
   assert.equal(initials("   "), "—");
+});
+
+test("backlog preserves in-progress work, excludes done and sprint issues, and orders legacy rows without mutating input", () => {
+  const source = [{ ...base, id: 12, sprintId: null, planningRank: 1 }, { ...base, id: 5, status: "IN_PROGRESS" }, { ...base, id: 6, status: "DONE" }, { ...base, id: 7, sprintId: 10 }, { ...base, id: 2, sprintId: null, planningRank: 1 }];
+  assert.deepEqual(orderedBacklog(source).map(issue => issue.id), [2, 12, 5]);
+  assert.deepEqual(source.map(issue => issue.id), [12, 5, 6, 7, 2]);
 });

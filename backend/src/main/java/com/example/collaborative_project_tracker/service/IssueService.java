@@ -56,6 +56,7 @@ public class IssueService {
         Long next = project.getNextIssueNumber();
         if (next == null) next = issues.highestIssueNumber(projectId) + 1;
         issue.setIssueNumber(next);
+        issue.setPlanningRank(issues.highestPlanningRank(projectId) + 1);
         project.setNextIssueNumber(next + 1);
         applyMetadata(issue, request, email, false);
         issue.setTitle(request.title().trim());
@@ -222,7 +223,9 @@ public class IssueService {
                 assignee != null ? assignee.getName() : null,
                 issue.getDueDate(),
                 issue.getCreatedAt(), issue.getIssueKey(), issue.getType(), issue.getStoryPoints(),
-                issue.getLabels() != null ? List.of(issue.getLabels().split(",")) : List.of()
+                issue.getLabels() != null ? List.of(issue.getLabels().split(",")) : List.of(),
+                issue.getSprint() != null ? issue.getSprint().getId() : null,
+                issue.getPlanningRank() != null ? issue.getPlanningRank() : issue.getId()
         );
     }
 }

@@ -4,7 +4,7 @@ export type Issue = {
   id: number; title: string; description: string | null; status: Status;
   priority: Priority; assigneeId: number | null; assigneeName: string | null;
   dueDate: string | null; createdAt: string;
-  issueKey?: string; type?: "BUG" | "TASK" | "STORY"; storyPoints?: number | null; labels?: string[];
+  sprintId?: number | null; planningRank?: number; issueKey?: string; type?: "BUG" | "TASK" | "STORY"; storyPoints?: number | null; labels?: string[];
 };
 
 export function canManageIssues(memberRole: string | undefined) {
@@ -38,4 +38,16 @@ export function filterIssues(issues: Issue[], filters: {
 
 export function summarizeIssues(issues: Issue[], today = new Date()) {
   return { total: issues.length, completed: issues.filter(issue => issue.status === "DONE").length, overdue: issues.filter(issue => isOverdue(issue, today)).length };
+}
+
+export type Sprint = {
+  id: number; name: string; goal: string | null; startDate: string; endDate: string;
+  status: "PLANNED" | "ACTIVE" | "COMPLETED"; startedAt: string | null; completedAt: string | null;
+  committedIssueCount: number | null; committedPoints: number | null;
+  snapshots: { issueId: number; issueKey: string; title: string; status: Status; storyPoints: number | null; assigneeName: string | null }[];
+};
+
+export function orderedBacklog(issues: Issue[]) {
+  return issues.filter(issue => issue.sprintId == null && issue.status !== "DONE")
+    .sort((left, right) => (left.planningRank ?? left.id) - (right.planningRank ?? right.id) || left.id - right.id);
 }

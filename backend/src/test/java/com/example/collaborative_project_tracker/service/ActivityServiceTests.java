@@ -190,7 +190,7 @@ class ActivityServiceTests {
     @Test
     void projectDeletionRemovesActivityBeforeDeletingItsIssues() {
         new ProjectService(projects, users, projectMemberships, issues, comments, activities,
-                mock(ProjectLeaveRequestRepository.class)).delete(1L, actor.getEmail());
+                mock(ProjectLeaveRequestRepository.class), mock(SprintRepository.class)).delete(1L, actor.getEmail());
         var order = inOrder(activities, issues, projects);
         order.verify(activities).deleteAllByProjectId(1L); order.verify(issues).deleteByProjectId(1L); order.verify(projects).delete(project);
     }

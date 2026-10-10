@@ -28,6 +28,7 @@ let failRead = false, failLoad = false, failNavigation = false, inboxRequests = 
 await page.route("**/api/**", async route => {
   const path = new URL(route.request().url()).pathname, method = route.request().method();
   const reply = (data, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
+  if (path.endsWith("/sprints")) return reply([]);
   if (path.endsWith("/csrf")) return reply({ token: "test" });
   if (path.endsWith("/me")) return reply({ id: 7, name: "Sam", email: "sam@example.test" });
   if (path === "/api/notifications") { inboxRequests++; return reply(failLoad ? {} : { items, unreadCount: items.filter(n => !n.readAt).length }, failLoad ? 500 : 200); }
