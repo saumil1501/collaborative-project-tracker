@@ -6,6 +6,7 @@ import IssueComments from "./IssueComments";
 import IssueActivity from "./IssueActivity";
 import ProjectSettings from "./ProjectSettings";
 import SprintPlanning from "./SprintPlanning";
+import IssueSearch from "./IssueSearch";
 import IssueHierarchy from "./IssueHierarchy";
 import type { ProjectDetails } from "./ProjectSettings";
 import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues, childProgress } from "../utils/board";
@@ -27,7 +28,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
 }) {
   const [showSettings, setShowSettings] = useState(initialSettings);
   const openedInitialIssue = useRef(false);
-  const [view, setView] = useState<"all" | "backlog" | "sprint" | "epics">("all");
+  const [view, setView] = useState<"all" | "backlog" | "sprint" | "epics" | "search">("all");
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [planningLoading, setPlanningLoading] = useState(true);
   const [planningError, setPlanningError] = useState("");
@@ -247,13 +248,14 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
         </div>
       </div>
 
-      <nav aria-label="Project views" className="mb-6 flex flex-wrap gap-2 border-b border-slate-800 pb-4">{([{ id: "all", label: "All issues" }, { id: "backlog", label: "Backlog" }, { id: "sprint", label: "Sprint board" }, { id: "epics", label: "Epics" }] as const).map(tab => <button key={tab.id} type="button" disabled={planningBusy || panelBusy || pendingId !== null} aria-pressed={view === tab.id} onClick={() => setView(tab.id)} className={`rounded-lg px-4 py-2 text-sm disabled:opacity-50 ${view === tab.id ? "bg-indigo-500/15 text-indigo-300" : "text-slate-400 hover:bg-slate-800"}`}>{tab.label}</button>)}</nav>
+      <nav aria-label="Project views" className="mb-6 flex flex-wrap gap-2 border-b border-slate-800 pb-4">{([{ id: "all", label: "All issues" }, { id: "backlog", label: "Backlog" }, { id: "sprint", label: "Sprint board" }, { id: "epics", label: "Epics" }, { id: "search", label: "Advanced search" }] as const).map(tab => <button key={tab.id} type="button" disabled={planningBusy || panelBusy || pendingId !== null} aria-pressed={view === tab.id} onClick={() => setView(tab.id)} className={`rounded-lg px-4 py-2 text-sm disabled:opacity-50 ${view === tab.id ? "bg-indigo-500/15 text-indigo-300" : "text-slate-400 hover:bg-slate-800"}`}>{tab.label}</button>)}</nav>
       {(view === "backlog" || view === "sprint") && planningLoading && <p role="status" className="mb-5 text-sm text-slate-400">Loading sprint planning...</p>}
       {(view === "backlog" || view === "sprint") && planningError && <div role="alert" className="mb-5 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300">{planningError}<button disabled={planningBusy} type="button" onClick={() => void refreshPlanning().catch(() => {})} className="ml-2 underline">Reload planning</button></div>}
       {(view === "backlog" || view === "sprint") && !planningError && <SprintPlanning projectId={projectId} issues={issues} sprints={sprints} canManage={canEditIssues} blocked={loading || planningLoading || Boolean(error) || panelBusy || pendingId !== null} compact={view === "sprint"} focusedSprint={focusedSprint} onSelect={setSelectedSprintId} onOpenIssue={openEditor} onChanged={refreshPlanning} onCompleted={() => setView("backlog")} onBusyChange={setPlanningBusy} />}
+      {view === "search" && <IssueSearch projectId={projectId} issues={issues} members={members} sprints={sprints} blocked={loading || panelBusy} onOpen={openEditor} onBusyChange={setPlanningBusy} />}
       {view === "epics" && loading && <p role="status" className="mb-5 text-sm text-slate-400">Loading issue hierarchy...</p>}
       {view === "epics" && !loading && <IssueHierarchy issues={issues} canManage={canEditIssues} blocked={loading || panelBusy || Boolean(error)} onOpen={openEditor} onCreate={(type, parentId) => openEditor(null, { type, parentId })} />}
-      {(view === "backlog" || view === "epics") && error && <div role="alert" className="mb-5 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300">{error}<button type="button" disabled={planningBusy || loading} onClick={() => { setLoading(true); void loadBoard(); }} className="ml-2 underline">Reload board</button></div>}
+      {(view === "backlog" || view === "epics" || view === "search") && error && <div role="alert" className="mb-5 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300">{error}<button type="button" disabled={planningBusy || loading} onClick={() => { setLoading(true); void loadBoard(); }} className="ml-2 underline">Reload board</button></div>}
       {(view === "all" || view === "sprint") && <>
       <div className="mb-6 grid grid-cols-3 gap-2 sm:gap-4" aria-label="Board summary">
         {[{ label: "Total issues", value: summary.total, color: "text-white" }, { label: "Completed", value: summary.completed, color: "text-emerald-400" }, { label: "Overdue", value: summary.overdue, color: "text-rose-400" }].map(stat => <div key={stat.label} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3 sm:p-5"><p className="text-xs text-slate-400 sm:text-sm">{stat.label}</p><p className={`mt-2 text-2xl font-semibold ${stat.color}`}>{loading ? "—" : stat.value}</p></div>)}

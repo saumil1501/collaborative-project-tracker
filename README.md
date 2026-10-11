@@ -91,6 +91,21 @@ A full-stack, multi-user project management application built using **Spring Boo
 - Deleting a project removes its sprint records and snapshots alongside existing issue data
 - Activity event fields use a VARCHAR mapping so new event types can be added without relying on a fixed MySQL enum definition; startup schema updates preserve existing values
 
+### Advanced Search and Personal Saved Filters
+- Dedicated Advanced search view inside each project, alongside the existing Kanban, backlog, sprint and epic views
+- Combine title/key/label-text search with status, issue type, priority, assignee, epic, effective sprint, exact label, overdue and inclusive due-date ranges
+- Text search treats SQL wildcard characters literally; exact labels do not match longer labels with the same prefix
+- Epic filters include its issues and their subtasks; sprint filters follow a subtask's parent allocation
+- The search backlog option finds unfinished work outside a sprint, including subtasks, and excludes epics and completed work
+- Server-side database filtering, counts and pagination; 20/50/100 results per page, with a maximum API page size of 100
+- Sort by newest creation, issue number, earliest due date (undated last), or highest priority; IDs break ties consistently
+- Open search results in the existing issue detail panel with the same editing, status and discussion permissions
+- Any project member can create, rename/update, apply and delete up to 20 personal filters per project; filters are stored in MySQL and only their creator can access them
+- Saved criteria keep `me` and overdue dynamic rather than capturing issue IDs; page position and page size are not saved
+- Search and saved-filter failures have independent retry controls; stale search responses cannot replace more recent results
+- Saved filters require current membership, and project deletion also deletes its saved filters
+- Existing board views retain their complete issue lists; search pagination affects the dedicated search endpoint and view
+
 ### Issue Comments
 - Project members can read and add plain-text comments in the issue side panel
 - Only a comment's author can edit or delete it, including when another member owns the project
@@ -162,7 +177,7 @@ Spring Security handles authentication and session management. Authorization is 
 
 ## Database Design
 
-The application uses nine core domain entities:
+The application uses ten core domain entities:
 
 | Entity | Description |
 |---|---|
@@ -175,6 +190,7 @@ The application uses nine core domain entities:
 | ProjectLeaveRequest | Stores each member's latest request to leave and its decision status |
 | Notification | Stores recipient-specific notifications, historical target IDs, and read timestamps |
 | Sprint | Stores planning dates, lifecycle, initial commitments, and embedded immutable completion snapshots |
+| SavedIssueFilter | Stores per-project, per-user search criteria and a private reusable name |
 
 ### Entity Relationships
 
@@ -262,6 +278,18 @@ All routes require project membership. All mutations require the project owner.
 | PUT | `/api/projects/{projectId}/backlog/order` | Set order using `{ "issueIds": [2, 1] }` with the exact current backlog IDs |
 
 Sprint creation and editing use `{ "name": "Iteration 1", "goal": "Deliver login", "startDate": "2026-10-10", "endDate": "2026-10-24" }`. End date must be on or after start date. Starting records the actual timestamp independently of scheduled dates. Dates do not automatically start or complete a sprint.
+
+### Search and Saved Filters
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/projects/{projectId}/issues/search` | Search and paginate issues; requires membership |
+| GET / POST | `/api/projects/{projectId}/saved-filters` | List your personal filters / save a new one |
+| PUT / DELETE | `/api/projects/{projectId}/saved-filters/{id}` | Update / delete your own filter |
+
+Search parameters: `q` (up to 150 characters), `status`, `type`, `priority`, `assignee` (`me`, `unassigned`, or user ID), `epicId`, `sprint` (`backlog` or sprint ID), `label` (one exact normalized label), `overdue`, ISO `dueFrom`/`dueTo`, `sort` (`created_desc`, `key_asc`, `due_asc`, `priority_desc`), zero-based `page` (0-100000) and `size` (1-100, default 20). Criteria combine using AND; text search combines title, key and label text using OR. Due today is not overdue; done issues are excluded from overdue results. Completed sprints hold historical snapshots rather than current issue allocations and therefore are not selectable in current allocation search.
+
+The result is `{ "items": [], "totalElements": 0, "totalPages": 0, "page": 0, "size": 20 }`. Saved-filter payloads use `{ "name": "My overdue issues", "criteria": { "assignee": "me", "overdue": true, "sort": "due_asc" } }`; unspecified criteria use search defaults. Another user's filter ID returns 404 even for the project owner. Filters whose referenced users, epics or sprints later disappear remain saved; their criteria may yield no matches and can be edited or reset.
 
 ### Notifications
 
@@ -408,7 +436,6 @@ For notification UI checks, build the frontend, make Playwright available, and r
 
 ## Future Enhancements
 
-- Server-side advanced search, filtering, and pagination
 - Optimistic locking for concurrent issue updates
 - Flyway database migrations
 - Backend integration tests and CI/CD
@@ -459,3 +486,5 @@ Structured issue UI checks: build the frontend, then run `node tests/structured-
 Planning verification: include `PlanningServiceTests` in backend unit checks. The opt-in live MySQL test suite verifies order persistence, lifecycle, permissions, snapshot survival after issue deletion, and project cleanup. Build the frontend and run `node tests/planning.browser.mjs` with Playwright available to check create/edit/move/reorder/start/complete/delete, failure recovery, sprint board filtering, member controls, reports and mobile layout using mock API data.
 
 Hierarchy verification: include `IssueHierarchyTests` and `PlanningServiceTests` in backend unit checks. The opt-in `ProjectSettingsMysqlTests` verifies persisted parent links, inherited sprint membership, permissions, completion rules, parent activity and project cleanup with temporary records that roll back. Build the frontend and run `node tests/hierarchy.browser.mjs` with Playwright available to verify epic/subtask creation, failure recovery, navigation, reparenting, progress, protected deletion, planning scope, member controls and mobile layout using mock API data.
+
+Search verification: run `IssueSearchServiceTests` and `IssueSearchControllerTests` for validation, personal ownership, limits and HTTP parameter binding. Enable `liveMysqlTests=true` for `IssueSearchMysqlTests` to verify combined database predicates, key/label matching, wildcard escaping, inherited epic/sprint filtering, legacy issues, stable pagination, sorting, persistence, privacy and project cleanup. Temporary test data rolls back. Build the frontend and run `node tests/search.browser.mjs` with Playwright available for pagination, personal filter CRUD, issue navigation, recovery, stale responses and mobile checks using mock API data.

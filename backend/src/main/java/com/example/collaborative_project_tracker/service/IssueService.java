@@ -255,7 +255,7 @@ public class IssueService {
                         HttpStatus.NOT_FOUND));
     }
 
-    private IssueResponse toResponse(Issue issue) {
+    IssueResponse toResponse(Issue issue) {
         AppUser assignee = issue.getAssignee();
 
         return new IssueResponse(
