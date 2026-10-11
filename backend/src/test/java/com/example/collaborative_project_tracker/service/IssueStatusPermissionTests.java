@@ -115,4 +115,18 @@ class IssueStatusPermissionTests {
         verify(memberships).requireMember(10L, assignee.getEmail());
         verify(issues).findByProjectIdOrderByCreatedAtDesc(10L);
     }
+    @Test void ownerCreationAlwaysStartsInTodoAndCanProgressAfterCreation() {
+        project.setNextIssueNumber(1L);
+        when(issues.highestPlanningRank(10L)).thenReturn(0L);
+        when(issues.save(any())).thenAnswer(call -> {
+            Issue created = call.getArgument(0); created.setId(30L); return created;
+        });
+        var created = service.create(10L, new IssueRequest("New task", null, null, null, null), owner.getEmail());
+        assertEquals(IssueStatus.TODO, created.status());
+        var saved = org.mockito.ArgumentCaptor.forClass(Issue.class);
+        verify(issues).save(saved.capture());
+        when(issues.findById(30L)).thenReturn(Optional.of(saved.getValue()));
+        assertEquals(IssueStatus.IN_PROGRESS, service.updateStatus(10L,30L,new UpdateIssueStatusRequest(IssueStatus.IN_PROGRESS),owner.getEmail()).status());
+        assertEquals(IssueStatus.DONE, service.updateStatus(10L,30L,new UpdateIssueStatusRequest(IssueStatus.DONE),owner.getEmail()).status());
+    }
 }

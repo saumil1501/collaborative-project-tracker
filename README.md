@@ -32,6 +32,7 @@ A full-stack, multi-user project management application built using **Spring Boo
 
 ### Issue Management
 - Only project owners can create, edit, and delete issues; members can view and discuss them
+- Every new issue starts in `TODO`; creation cannot choose `IN_PROGRESS` or `DONE`. Only the To do column has a create button. After creation, the owner/current assignee can move work to In progress or Done.
 - Assign issues to project members
 - Set issue priorities: `LOW`, `MEDIUM`, `HIGH`
 - Set due dates and descriptions

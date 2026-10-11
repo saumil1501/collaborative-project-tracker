@@ -152,9 +152,22 @@ try {
   await page.getByRole("button", { name: "Save changes" }).click();
   await page.getByRole("button", { name: /Refined workspace/ }).waitFor();
 
+  assert.equal(await page.getByRole("region", { name: "To do", exact: true }).getByRole("button", { name: "Create an issue (starts in To do)", exact: true }).count(), 1);
+  for (const column of ["In progress", "Done"]) {
+    assert.equal(await page.getByRole("region", { name: column, exact: true }).getByRole("button", { name: "Create an issue (starts in To do)", exact: true }).count(), 0);
+  }
   await page.getByRole("button", { name: "New issue", exact: true }).click();
+  await page.getByRole("dialog").getByText(/New issues start in/).waitFor();
+  assert.equal(await page.getByRole("dialog").getByLabel("Issue status", { exact: true }).count(), 0);
   await page.getByRole("textbox", { name: /^Title/ }).fill("Portfolio walkthrough");
   await page.getByRole("button", { name: "Create issue", exact: true }).click();
+  await page.getByRole("region", { name: "To do", exact: true }).getByRole("button", { name: /Portfolio walkthrough/ }).waitFor();
+  assert.equal(issues.find(issue => issue.title === "Portfolio walkthrough").status, "TODO");
+  const createdStatus = page.getByRole("combobox", { name: "Status for Portfolio walkthrough", exact: true });
+  await createdStatus.selectOption("IN_PROGRESS");
+  await waitFor(async () => issues.find(issue => issue.title === "Portfolio walkthrough").status === "IN_PROGRESS" && await createdStatus.isEnabled());
+  await createdStatus.selectOption("DONE");
+  await waitFor(async () => issues.find(issue => issue.title === "Portfolio walkthrough").status === "DONE" && await createdStatus.isEnabled());
   await page.getByRole("button", { name: /Portfolio walkthrough/ }).click();
   await page.getByRole("button", { name: "Delete issue", exact: true }).click();
   await page.getByRole("button", { name: "Keep issue" }).click();
