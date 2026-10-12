@@ -23,8 +23,9 @@ public class ProjectService {
     private final ProjectLeaveRequestRepository leaveRequests;
     private final SprintRepository sprints;
     private final SavedIssueFilterRepository filters;
+    private final IssueDependencyRepository dependencies;
 
-    public ProjectService(ProjectRepository projects, UserRepository users, ProjectMembershipRepository memberships, IssueRepository issueRepository, IssueCommentRepository comments, IssueActivityRepository activities, ProjectLeaveRequestRepository leaveRequests, SprintRepository sprints, SavedIssueFilterRepository filters) {
+    public ProjectService(ProjectRepository projects, UserRepository users, ProjectMembershipRepository memberships, IssueRepository issueRepository, IssueCommentRepository comments, IssueActivityRepository activities, ProjectLeaveRequestRepository leaveRequests, SprintRepository sprints, SavedIssueFilterRepository filters, IssueDependencyRepository dependencies) {
         this.projects = projects;
         this.users = users;
 		this.memberships = memberships;
@@ -32,7 +33,7 @@ public class ProjectService {
         this.comments = comments;
         this.activities = activities;
         this.leaveRequests = leaveRequests;
-        this.sprints = sprints; this.filters = filters;
+        this.sprints = sprints; this.filters = filters; this.dependencies = dependencies;
     }
 
     @Transactional
@@ -94,6 +95,7 @@ public class ProjectService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
 
+        dependencies.deleteByBlockerProjectId(projectId);
         filters.deleteByProjectId(projectId);
         // Delete all issues associated with this project
         comments.deleteAllByProjectId(projectId);

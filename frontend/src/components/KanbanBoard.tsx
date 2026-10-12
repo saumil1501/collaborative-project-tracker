@@ -6,10 +6,11 @@ import IssueComments from "./IssueComments";
 import IssueActivity from "./IssueActivity";
 import ProjectSettings from "./ProjectSettings";
 import SprintPlanning from "./SprintPlanning";
+import IssueDependencies from "./IssueDependencies";
 import IssueSearch from "./IssueSearch";
 import IssueHierarchy from "./IssueHierarchy";
 import type { ProjectDetails } from "./ProjectSettings";
-import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues, childProgress } from "../utils/board";
+import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues, childProgress, unresolvedBlockers, mergeIssueUpdate } from "../utils/board";
 import type { Issue, Priority, Status, Sprint, IssueType } from "../utils/board";
 
 type Member = { userId: number; name: string; email: string; role: string };
@@ -51,6 +52,8 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
   const [saving, setSaving] = useState(false);
   const [commentsBusy, setCommentsBusy] = useState(false);
   const panelBusy = saving || commentsBusy || planningBusy || pendingId !== null;
+  const [dependencyStale, setDependencyStale] = useState(false);
+  const [dependencyVersion, setDependencyVersion] = useState(0);
   const [editorError, setEditorError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [issueType, setIssueType] = useState<IssueType>("TASK");
@@ -65,9 +68,11 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
   const [dueDate, setDueDate] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
   const titleInput = useRef<HTMLInputElement>(null);
+  const editorOpen = editor !== null;
+  const editorIssueId = editor?.issue?.id;
   const currentMemberRole = members.find(member => member.userId === currentUserId)?.role;
   const canEditIssues = canManageIssues(currentMemberRole);
-  const canChangeStatus = (issue: Issue) => canChangeIssueStatus(issue, currentUserId, currentMemberRole);
+  const canChangeStatus = (issue: Issue) => !dependencyStale && canChangeIssueStatus(issue, currentUserId, currentMemberRole);
   const filtersActive = Boolean(query || assigneeFilter || priorityFilter || mineOnly || typeFilter);
 
   const loadBoard = useCallback((signal?: AbortSignal, throwOnError = false) => {
@@ -77,6 +82,8 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
     ]).then(([issueResponse, memberResponse]) => {
       if (signal?.aborted) return;
       setIssues(issueResponse.data);
+      setDependencyStale(false);
+      setEditor(previous => previous?.issue ? { issue: issueResponse.data.find(issue => issue.id === previous.issue?.id) || previous.issue } : previous);
       setMembers(memberResponse.data);
       setError("");
       if (initialIssueId && !openedInitialIssue.current) {
@@ -129,7 +136,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
   }, [notice]);
 
   useEffect(() => {
-    if (!editor) return;
+    if (!editorOpen) return;
     const element = dialog.current;
     const previousFocus = document.activeElement as HTMLElement | null;
     element?.showModal();
@@ -141,7 +148,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
       document.body.style.overflow = previousOverflow;
       previousFocus?.focus();
     };
-  }, [editor]);
+  }, [editorOpen, editorIssueId]);
 
   function openEditor(issue: Issue | null, defaults?: { type: IssueType; parentId?: number }) {
     if (planningBusy || mutationLock.current || (!issue && !canEditIssues)) return;
@@ -178,7 +185,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
       const { data } = editor?.issue
         ? await api.put<Issue>(`/projects/${projectId}/issues/${editor.issue.id}`, payload)
         : await api.post<Issue>(`/projects/${projectId}/issues`, payload);
-      setIssues(previous => editor?.issue ? previous.map(issue => issue.id === data.id ? data : issue) : [data, ...previous]);
+      setIssues(previous => editor?.issue ? mergeIssueUpdate(previous, data) : [data, ...previous]);
       setNotice(editor?.issue ? "Issue updated." : issueType === "EPIC" ? "Epic created." : issueType === "SUBTASK" ? "Subtask created under its parent." : "Issue created in To do in the backlog.");
       setEditor(null);
     } catch (error) {
@@ -198,7 +205,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
     setIssues(previous => previous.map(item => item.id === issue.id ? { ...item, status } : item));
     try {
       const { data } = await api.patch<Issue>(`/projects/${projectId}/issues/${issue.id}/status`, { status });
-      setIssues(previous => previous.map(item => item.id === issue.id ? data : item));
+      setIssues(previous => mergeIssueUpdate(previous, data));
       setEditor(previous => previous?.issue?.id === data.id ? { issue: data } : previous);
       setNotice(`Issue moved to ${columns.find(column => column.status === status)?.label}.`);
     } catch (error) {
@@ -218,7 +225,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
     setEditorError("");
     try {
       await api.delete(`/projects/${projectId}/issues/${editor.issue.id}`);
-      setIssues(previous => previous.filter(issue => issue.id !== editor.issue?.id));
+      setIssues(previous => previous.filter(issue => issue.id !== editor.issue?.id).map(issue => ({ ...issue, blockedBy: issue.blockedBy?.filter(link => link.issueId !== editor.issue?.id), blocks: issue.blocks?.filter(link => link.issueId !== editor.issue?.id) })));
       setEditor(null);
       setNotice("Issue deleted.");
     } catch (error) {
@@ -228,6 +235,14 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
       mutationLock.current = false;
       setSaving(false);
     }
+  }
+
+  async function refreshDependencies() {
+    const { data } = await api.get<Issue[]>(`/projects/${projectId}/issues`);
+    setIssues(data);
+    setEditor(previous => previous?.issue ? { issue: data.find(issue => issue.id === previous.issue?.id) || previous.issue } : previous);
+    setDependencyVersion(value => value + 1);
+    setDependencyStale(false);
   }
 
   const focusedSprint = sprints.find(sprint => sprint.id === selectedSprintId && sprint.status !== "COMPLETED")
@@ -248,6 +263,7 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
         </div>
       </div>
 
+      {dependencyStale && <p role="alert" className="mb-5 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300">Refresh dependency data before changing statuses.<button type="button" disabled={panelBusy || loading} onClick={() => { setLoading(true); void loadBoard(); }} className="ml-2 underline">Reload board dependencies</button></p>}
       <nav aria-label="Project views" className="mb-6 flex flex-wrap gap-2 border-b border-slate-800 pb-4">{([{ id: "all", label: "All issues" }, { id: "backlog", label: "Backlog" }, { id: "sprint", label: "Sprint board" }, { id: "epics", label: "Epics" }, { id: "search", label: "Advanced search" }] as const).map(tab => <button key={tab.id} type="button" disabled={planningBusy || panelBusy || pendingId !== null} aria-pressed={view === tab.id} onClick={() => setView(tab.id)} className={`rounded-lg px-4 py-2 text-sm disabled:opacity-50 ${view === tab.id ? "bg-indigo-500/15 text-indigo-300" : "text-slate-400 hover:bg-slate-800"}`}>{tab.label}</button>)}</nav>
       {(view === "backlog" || view === "sprint") && planningLoading && <p role="status" className="mb-5 text-sm text-slate-400">Loading sprint planning...</p>}
       {(view === "backlog" || view === "sprint") && planningError && <div role="alert" className="mb-5 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300">{planningError}<button disabled={planningBusy} type="button" onClick={() => void refreshPlanning().catch(() => {})} className="ml-2 underline">Reload planning</button></div>}
@@ -283,18 +299,18 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
             <div className="space-y-3">
               {loading ? [0, 1].map(item => <div key={item} className="animate-pulse rounded-xl border border-slate-700/60 bg-slate-800/60 p-4" aria-hidden="true"><div className="mb-4 h-3 w-16 rounded bg-slate-700" /><div className="mb-2 h-4 w-4/5 rounded bg-slate-700" /><div className="mb-6 h-3 w-3/5 rounded bg-slate-700" /><div className="h-7 w-full rounded bg-slate-700" /></div>) : columnIssues.map(issue => <article key={issue.id} draggable={canChangeStatus(issue) && pendingId === null && !planningBusy} onDragStart={event => { if (!canChangeStatus(issue)) { event.preventDefault(); return; } setDraggingId(issue.id); event.dataTransfer.setData("text/plain", String(issue.id)); event.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => { setDraggingId(null); setDropTarget(null); }} className={`group rounded-xl border border-slate-700/70 bg-slate-800/80 p-4 shadow-sm transition hover:border-slate-600 ${draggingId === issue.id ? "opacity-40" : ""} ${pendingId === issue.id ? "animate-pulse" : ""}`}>
                 <div className="mb-3 flex items-center justify-between"><span className="text-[11px] font-medium tracking-wide text-slate-500">{issue.issueKey || `ISSUE-${issue.id}`}</span>{canChangeStatus(issue) && <GripVertical size={15} aria-hidden="true" className="cursor-grab text-slate-600 group-hover:text-slate-400" />}</div>
-                <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-indigo-300"><span className="rounded bg-slate-800 px-2 py-1">{issue.type || "TASK"}</span>{issue.parentKey && <span>Parent: {issue.parentKey}</span>}{childProgress(issue.id, issues).total > 0 && <span>{childProgress(issue.id, issues).done}/{childProgress(issue.id, issues).total} children done</span>}{issue.storyPoints != null && <span>{issue.storyPoints} points</span>}</div>
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-indigo-300"><span className="rounded bg-slate-800 px-2 py-1">{issue.type || "TASK"}</span>{unresolvedBlockers(issue).length > 0 && <span className="rounded bg-rose-500/15 px-2 py-1 text-rose-300" title={`Blocked by ${unresolvedBlockers(issue).map(link => link.issueKey).join(", ")}`}>Blocked: {unresolvedBlockers(issue).length}</span>}{issue.parentKey && <span>Parent: {issue.parentKey}</span>}{childProgress(issue.id, issues).total > 0 && <span>{childProgress(issue.id, issues).done}/{childProgress(issue.id, issues).total} children done</span>}{issue.storyPoints != null && <span>{issue.storyPoints} points</span>}</div>
                 <button onClick={() => openEditor(issue)} disabled={pendingId !== null || planningBusy} className="block w-full text-left disabled:opacity-60"><h4 className="break-words text-sm font-semibold leading-6 text-slate-100 group-hover:text-indigo-200">{issue.title}</h4><p className="mt-1.5 line-clamp-2 break-words text-xs leading-5 text-slate-400">{issue.description || "Add a description to bring this issue into focus."}</p></button>
                 <div className="my-4 flex flex-wrap items-center gap-2"><span className={`rounded-md px-2 py-1 text-[11px] font-medium ${priorityColors[issue.priority]}`}>{issue.priority.charAt(0) + issue.priority.slice(1).toLowerCase()} priority</span>{issue.dueDate && <span className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] ${isOverdue(issue) ? "bg-rose-500/10 text-rose-300" : "bg-slate-700/50 text-slate-400"}`}><CalendarDays size={12} />{new Date(`${issue.dueDate}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}{isOverdue(issue) && " · Overdue"}</span>}</div>
                 {Boolean(issue.labels?.length) && <div className="flex flex-wrap gap-1">{issue.labels?.map(label => <span key={label} className="max-w-full break-all rounded bg-slate-800 px-2 py-1 text-[10px] text-slate-300">{label}</span>)}</div>}
-                <div className="flex items-center gap-2 border-t border-slate-700/60 pt-3"><span title={issue.assigneeName || "Unassigned"} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-indigo-400/20 bg-indigo-400/10 text-[10px] font-semibold text-indigo-300">{initials(issue.assigneeName)}</span><span className="min-w-0 flex-1 truncate text-xs text-slate-400">{issue.assigneeName || "Unassigned"}</span><select aria-label={`Status for ${issue.title}`} disabled={!canChangeStatus(issue) || pendingId !== null || planningBusy} title={canChangeStatus(issue) ? "Change status" : "Only the project owner or current assignee can change status"} value={issue.status} onChange={event => void changeStatus(issue, event.target.value as Status)} className="max-w-32 rounded-lg border border-slate-700 bg-slate-900 px-1.5 py-1 text-[11px] text-slate-300 disabled:opacity-50">{columns.map(option => <option key={option.status} value={option.status}>{option.label}</option>)}</select></div>
+                <div className="flex items-center gap-2 border-t border-slate-700/60 pt-3"><span title={issue.assigneeName || "Unassigned"} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-indigo-400/20 bg-indigo-400/10 text-[10px] font-semibold text-indigo-300">{initials(issue.assigneeName)}</span><span className="min-w-0 flex-1 truncate text-xs text-slate-400">{issue.assigneeName || "Unassigned"}</span><select aria-label={`Status for ${issue.title}`} disabled={!canChangeStatus(issue) || pendingId !== null || planningBusy} title={unresolvedBlockers(issue).length ? `Complete blockers first: ${unresolvedBlockers(issue).map(link => link.issueKey).join(", ")}` : canChangeStatus(issue) ? "Change status" : "Only the project owner or current assignee can change status"} value={issue.status} onChange={event => void changeStatus(issue, event.target.value as Status)} className="max-w-32 rounded-lg border border-slate-700 bg-slate-900 px-1.5 py-1 text-[11px] text-slate-300 disabled:opacity-50">{columns.map(option => <option key={option.status} value={option.status}>{option.label}</option>)}</select></div>
               </article>)}
               {!loading && !columnIssues.length && <div className="rounded-xl border border-dashed border-slate-700/70 px-4 py-10 text-center"><Icon size={24} className="mx-auto mb-3 text-slate-600" /><p className="text-sm text-slate-400">{filtersActive ? "No matching issues" : "Room for what's next"}</p><p className="mt-2 text-xs leading-5 text-slate-500">{filtersActive ? "Try changing or clearing your filters." : column.status === "TODO" ? view === "sprint" ? "Add issues to this sprint from the Backlog view." : "Create an issue to get started." : `Move an issue here when it's ${column.status === "DONE" ? "complete" : "underway"}.`}</p></div>}
             </div>
           </section>;
         })}
       </div>
-      <p className="mt-4 text-xs text-slate-500">Owners and current assignees can change status using drag and drop or the status menu. Only the owner can create, edit other details or delete issues. Members can join the discussion.</p>
+      <p className="mt-4 text-xs text-slate-500">Owners and current assignees can change status using drag and drop or the status menu once all blockers are done. Only the owner can create, edit other details or delete issues. Members can join the discussion.</p>
 
       </>}
       {showSettings && <ProjectSettings projectId={projectId} currentUserId={currentUserId} onProjectUpdated={onProjectUpdated} onBack={onBack} onClose={() => { setShowSettings(false); setLoading(true); void loadBoard(); }} />}
@@ -321,8 +337,9 @@ export default function KanbanBoard({ projectId, projectName, currentUserId, onB
             {editor.issue.parentId && <button type="button" disabled={panelBusy} onClick={() => { const parent = issues.find(issue => issue.id === editor.issue?.parentId); if (parent) openEditor(parent); }} className="block text-left text-xs text-indigo-300 underline">Open parent {editor.issue.parentKey}</button>}
             {editor.issue.type !== "SUBTASK" && <><p className="text-xs text-slate-300">{childProgress(editor.issue.id, issues).done}/{childProgress(editor.issue.id, issues).total} {editor.issue.type === "EPIC" ? "issues" : "subtasks"} completed</p>{issues.filter(issue => issue.parentId === editor.issue?.id).map(issue => <button key={issue.id} type="button" disabled={panelBusy} onClick={() => openEditor(issue)} className="block w-full break-words rounded-lg bg-slate-800 p-3 text-left text-xs"><span className="text-indigo-300">{issue.issueKey}</span> - {issue.title} ({issue.status.toLowerCase().replaceAll("_", " ")})</button>)}{canEditIssues && <button type="button" disabled={panelBusy || editor.issue.status === "DONE"} onClick={() => openEditor(null, { type: editor.issue?.type === "EPIC" ? "STORY" : "SUBTASK", parentId: editor.issue!.id })} className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-indigo-300">{editor.issue.type === "EPIC" ? "Add issue to epic" : "Add subtask"}</button>}</>}
           </section>}
+          {editor.issue && <IssueDependencies key={`dependencies-${editor.issue.id}`} projectId={projectId} issue={editor.issue} issues={issues} canManage={canEditIssues} disabled={panelBusy || confirmDelete} onOpen={openEditor} onChanged={refreshDependencies} onBusyChange={setPlanningBusy} onStaleChange={setDependencyStale} />}
           {editor.issue && <IssueComments key={`comments-${editor.issue.id}`} projectId={projectId} issueId={editor.issue.id} currentUserId={currentUserId} disabled={saving || planningBusy || pendingId !== null || confirmDelete} onBusyChange={setCommentsBusy} />}
-          {editor.issue && <IssueActivity key={`activity-${editor.issue.id}-${editor.issue.status}`} projectId={projectId} issueId={editor.issue.id} />}
+          {editor.issue && <IssueActivity key={`activity-${editor.issue.id}-${editor.issue.status}-${dependencyVersion}`} projectId={projectId} issueId={editor.issue.id} />}
           {editorError && <p role="alert" className="mx-6 mb-4 rounded-xl bg-rose-500/10 p-3 text-sm text-rose-300">{editorError}</p>}
           {confirmDelete && <div className="mx-6 mb-5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4"><p className="text-sm font-medium text-rose-200">Delete this issue permanently?</p><p className="mt-1 text-xs text-rose-300/80">This action cannot be undone.</p><div className="mt-3 flex gap-3"><button type="button" disabled={panelBusy} onClick={() => void deleteIssue()} className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold disabled:opacity-50">{saving ? "Deleting…" : "Yes, delete issue"}</button><button type="button" disabled={panelBusy} onClick={() => setConfirmDelete(false)} className="text-xs text-slate-300">Keep issue</button></div></div>}
           <footer className="sticky bottom-0 flex items-center gap-3 border-t border-slate-800 bg-slate-900 p-6">{canEditIssues && editor.issue && <button type="button" disabled={panelBusy} onClick={() => setConfirmDelete(true)} aria-label="Delete issue" className="mr-auto rounded-lg p-2 text-rose-400 hover:bg-rose-500/10 disabled:opacity-50"><Trash2 size={18} /></button>}<button type="button" disabled={panelBusy} onClick={() => setEditor(null)} className="ml-auto rounded-xl px-3 py-2.5 text-sm text-slate-400 hover:text-white disabled:opacity-50">{canEditIssues ? "Cancel" : "Close"}</button>{canEditIssues && <button type="submit" disabled={panelBusy || confirmDelete} className="rounded-xl bg-indigo-500 px-5 py-2.5 text-sm font-semibold hover:bg-indigo-400 disabled:opacity-50">{saving ? "Saving…" : editor.issue ? "Save changes" : "Create issue"}</button>}</footer>

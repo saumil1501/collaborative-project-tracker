@@ -115,7 +115,7 @@ class CommentServiceTests {
         when(projects.findLockedById(1L)).thenReturn(Optional.of(issue.getProject()));
         IssueService issueService = new IssueService(issues, projects,
                 mock(ProjectMembershipRepository.class), users, memberships, comments,
-                mock(IssueActivityRepository.class), mock(ActivityService.class), mock(NotificationService.class));
+                mock(IssueActivityRepository.class), mock(ActivityService.class), mock(NotificationService.class), mock(DependencyService.class));
         issueService.delete(1L, 2L, "author@example.test");
         var order = inOrder(comments, issues);
         order.verify(comments).deleteAllByIssueId(2L);
@@ -129,7 +129,7 @@ class CommentServiceTests {
         Project project = issue.getProject(); project.setOwner(comment.getAuthor());
         when(projects.findLockedById(1L)).thenReturn(Optional.of(project));
         new ProjectService(projects, users, projectMemberships, issues, comments,
-                mock(IssueActivityRepository.class), mock(ProjectLeaveRequestRepository.class), mock(SprintRepository.class), mock(SavedIssueFilterRepository.class)).delete(1L, "author@example.test");
+                mock(IssueActivityRepository.class), mock(ProjectLeaveRequestRepository.class), mock(SprintRepository.class), mock(SavedIssueFilterRepository.class), mock(IssueDependencyRepository.class)).delete(1L, "author@example.test");
         var order = inOrder(comments, issues, projectMemberships, projects);
         order.verify(comments).deleteAllByProjectId(1L);
         order.verify(issues).deleteByProjectId(1L);

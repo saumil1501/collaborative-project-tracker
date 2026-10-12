@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues, orderedBacklog, childProgress } from "../src/utils/board.ts";
+import { canChangeIssueStatus, canManageIssues, filterIssues, initials, isOverdue, summarizeIssues, orderedBacklog, childProgress, mergeIssueUpdate } from "../src/utils/board.ts";
 
 const today = new Date(2026, 9, 9, 23, 59);
 const base = { id: 1, title: "Review design", description: null, status: "TODO", priority: "HIGH", assigneeId: 7, assigneeName: "Sam Lee", dueDate: "2026-10-09", createdAt: "2026-10-01T12:00:00" };
@@ -63,4 +63,16 @@ test("hierarchy progress counts direct children and planning excludes epics and 
   assert.deepEqual(childProgress(11, source), { total: 1, done: 1, percent: 100, points: 0, completedPoints: 0 });
   assert.equal(childProgress(999, source).percent, 0);
   assert.deepEqual(orderedBacklog(source).map(issue => issue.id), [11]);
+});
+
+test("unfinished dependency blockers lock status for owners and assignees; completing upstream work refreshes summaries", () => {
+  const blocker = { ...base, id: 10, issueKey: "WEB-10", status: "TODO" };
+  const blocked = { ...base, id: 11, blockedBy: [{ id: 1, issueId: 10, issueKey: "WEB-10", title: blocker.title, status: "TODO" }] };
+  assert.equal(canChangeIssueStatus(blocked, 8, "OWNER"), false);
+  assert.equal(canChangeIssueStatus(blocked, 7, "MEMBER"), false);
+  const merged = mergeIssueUpdate([blocker, blocked], { ...blocker, status: "DONE" });
+  assert.equal(canChangeIssueStatus(merged[1], 8, "OWNER"), true);
+  assert.equal(canChangeIssueStatus(merged[1], 7, "MEMBER"), true);
+  assert.equal(blocked.blockedBy[0].status, "TODO", "The source must not be mutated");
+  assert.equal(canChangeIssueStatus(mergeIssueUpdate(merged, { ...blocker, status: "IN_PROGRESS" })[1], 8, "OWNER"), false);
 });

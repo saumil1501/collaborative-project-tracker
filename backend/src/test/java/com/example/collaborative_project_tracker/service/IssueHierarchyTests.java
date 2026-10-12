@@ -21,7 +21,7 @@ class IssueHierarchyTests {
         comments = mock(IssueCommentRepository.class); activities = mock(IssueActivityRepository.class);
         activity = mock(ActivityService.class); membership = mock(MembershipService.class);
         service = new IssueService(issues, projects, mock(ProjectMembershipRepository.class), users, membership,
-                comments, activities, activity, mock(NotificationService.class));
+                comments, activities, activity, mock(NotificationService.class), mock(DependencyService.class));
         owner = new AppUser(); owner.setId(7L); owner.setEmail("owner");
         member = new AppUser(); member.setId(8L); member.setEmail("member");
         when(users.findByEmailIgnoreCase("owner")).thenReturn(Optional.of(owner));

@@ -106,6 +106,20 @@ A full-stack, multi-user project management application built using **Spring Boo
 - Saved filters require current membership, and project deletion also deletes its saved filters
 - Existing board views retain their complete issue lists; search pagination affects the dedicated search endpoint and view
 
+### Issue Dependencies
+- Owners link project issues using `blocks` / `blocked by`, and can remove links from either connected issue
+- Project members can read dependency links, follow linked issues and continue discussing blocked work
+- Every actual status change is rejected while any directly linked blocker is not `DONE`, including owner changes, assignee changes, backward transitions and reopening; requesting the unchanged status is a harmless no-op
+- Cards show unresolved blocker counts; blocked cards cannot be dragged and their status controls are disabled
+- Completing a blocker unlocks its dependents. Reopening a blocker locks its dependents again without automatically changing their existing statuses
+- Completed work cannot acquire an unfinished blocker; reopen that issue first
+- Self-links, duplicate links, cross-project links and circular dependencies are rejected
+- Cycle checks also include child-before-parent completion rules, and reparenting is checked against existing dependency links so hierarchy changes cannot create deadlocks
+- Project locks serialize dependency edits with issue/status/hierarchy changes
+- Adding/removing links records activity on both ends. Deleting an issue removes its incoming/outgoing links and records removal in surviving issues; project deletion removes all project links
+- Dependency summaries are included in issue responses, including advanced search results. Completing, reopening or deleting a visible issue updates related local summaries
+- If a link change saves but refreshing fails, further link mutations and status controls lock until data is refreshed; retry only reloads and never repeats the saved mutation
+
 ### Issue Comments
 - Project members can read and add plain-text comments in the issue side panel
 - Only a comment's author can edit or delete it, including when another member owns the project
@@ -177,7 +191,7 @@ Spring Security handles authentication and session management. Authorization is 
 
 ## Database Design
 
-The application uses ten core domain entities:
+The application uses eleven core domain entities:
 
 | Entity | Description |
 |---|---|
@@ -191,6 +205,7 @@ The application uses ten core domain entities:
 | Notification | Stores recipient-specific notifications, historical target IDs, and read timestamps |
 | Sprint | Stores planning dates, lifecycle, initial commitments, and embedded immutable completion snapshots |
 | SavedIssueFilter | Stores per-project, per-user search criteria and a private reusable name |
+| IssueDependency | Stores directed prerequisite links between issues, unique by blocker/blocked pair |
 
 ### Entity Relationships
 
@@ -263,6 +278,17 @@ Requests use `PENDING`, `APPROVED`, `REJECTED`, and `CANCELLED` states. A member
 Issue create/update payloads accept `type` (`EPIC`, `STORY`, `TASK`, `BUG`, `SUBTASK`) and optional `parentId`. For example, create an epic with `{ "title": "Authentication", "type": "EPIC" }`, link a story with `{ "title": "Login", "type": "STORY", "parentId": 1, "storyPoints": 5 }`, and add a subtask with `{ "title": "Test login", "type": "SUBTASK", "parentId": 2 }`. Issue responses include `parentId`, `parentKey` and the effective `sprintId`. Set a standard issue's `parentId` to `null` to remove its epic link. Update uses the complete issue metadata payload, including its current parent.
 
 Hierarchy conflicts return an explanatory HTTP 409 response; invalid levels or estimates return 400, and foreign-project parents return 404. Issue mutation errors use a `ProblemDetail` body with a readable `detail` field.
+
+### Dependencies
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/projects/{projectId}/issues/{issueId}/dependencies` | Add a directed dependency (owner only) |
+| DELETE | `/api/projects/{projectId}/issues/{issueId}/dependencies/{linkId}` | Remove a link connected to this issue (owner only) |
+
+Creation uses `{ "targetId": 2, "direction": "BLOCKED_BY" }` when issue 2 must be completed first, or `"direction": "BLOCKS"` when the current issue is the prerequisite for issue 2. The response is `{ "id": 1, "issueId": 2, "issueKey": "WEB-2", "title": "Build API", "status": "TODO" }`. Issue responses include `blockedBy` and `blocks` lists in the same format. A link's `id` identifies the dependency; `issueId` identifies the related issue.
+
+Status changes with unfinished blockers, duplicate links and dependency/hierarchy cycles return HTTP 409 with a readable `detail`. Self-links return 400; foreign or unrelated links return 404. There is no owner override for a blocked status change; owners can edit the dependency links themselves. Dependencies affect issue statuses, not sprint lifecycle transitions.
 
 ### Planning
 
@@ -488,3 +514,5 @@ Planning verification: include `PlanningServiceTests` in backend unit checks. Th
 Hierarchy verification: include `IssueHierarchyTests` and `PlanningServiceTests` in backend unit checks. The opt-in `ProjectSettingsMysqlTests` verifies persisted parent links, inherited sprint membership, permissions, completion rules, parent activity and project cleanup with temporary records that roll back. Build the frontend and run `node tests/hierarchy.browser.mjs` with Playwright available to verify epic/subtask creation, failure recovery, navigation, reparenting, progress, protected deletion, planning scope, member controls and mobile layout using mock API data.
 
 Search verification: run `IssueSearchServiceTests` and `IssueSearchControllerTests` for validation, personal ownership, limits and HTTP parameter binding. Enable `liveMysqlTests=true` for `IssueSearchMysqlTests` to verify combined database predicates, key/label matching, wildcard escaping, inherited epic/sprint filtering, legacy issues, stable pagination, sorting, persistence, privacy and project cleanup. Temporary test data rolls back. Build the frontend and run `node tests/search.browser.mjs` with Playwright available for pagination, personal filter CRUD, issue navigation, recovery, stale responses and mobile checks using mock API data.
+
+Dependency verification: run `DependencyServiceTests` for directional links, owner-only mutations, status locking across every transition, cycles/hierarchy changes, no-op status requests and deletion ordering. Enable `liveMysqlTests=true` for `DependencyMysqlTests` to verify persistence, owner/assignee enforcement, activity, completion/reopening, link removal and issue/project cleanup with temporary rolled-back records. Build the frontend and run `node tests/dependencies.browser.mjs` with Playwright available for blocked cards/panels, immediate unlock/relock, owner/member controls, cycles, discussion, deletion, failed save/refresh recovery and mobile layout using mock API data.

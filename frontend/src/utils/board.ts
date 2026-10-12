@@ -1,10 +1,11 @@
 export type Status = "TODO" | "IN_PROGRESS" | "DONE";
 export type Priority = "LOW" | "MEDIUM" | "HIGH";
 export type IssueType = "BUG" | "TASK" | "STORY" | "EPIC" | "SUBTASK";
+export type DependencyItem = { id: number; issueId: number; issueKey: string; title: string; status: Status };
 export type Issue = {
   id: number; title: string; description: string | null; status: Status;
   priority: Priority; assigneeId: number | null; assigneeName: string | null;
-  dueDate: string | null; createdAt: string;
+  dueDate: string | null; createdAt: string; blockedBy?: DependencyItem[]; blocks?: DependencyItem[];
   sprintId?: number | null; planningRank?: number; issueKey?: string; type?: IssueType; parentId?: number | null; parentKey?: string | null; storyPoints?: number | null; labels?: string[];
 };
 
@@ -13,7 +14,7 @@ export function canManageIssues(memberRole: string | undefined) {
 }
 
 export function canChangeIssueStatus(issue: Issue, currentUserId: number, memberRole: string | undefined) {
-  return canManageIssues(memberRole) || (memberRole === "MEMBER" && issue.assigneeId === currentUserId);
+  return !unresolvedBlockers(issue).length && (canManageIssues(memberRole) || (memberRole === "MEMBER" && issue.assigneeId === currentUserId));
 }
 
 // Compare calendar dates, so an issue due today remains on time all day.
@@ -64,4 +65,12 @@ export function childProgress(parentId: number, issues: Issue[]) {
   return { total: children.length, done, percent: children.length ? Math.round(done * 100 / children.length) : 0,
     points: children.reduce((sum, issue) => sum + (issue.storyPoints || 0), 0),
     completedPoints: children.filter(issue => issue.status === "DONE").reduce((sum, issue) => sum + (issue.storyPoints || 0), 0) };
+}
+
+export function unresolvedBlockers(issue: Issue) { return (issue.blockedBy || []).filter(blocker => blocker.status !== "DONE"); }
+
+// A changed upstream issue updates all visible dependency summaries immediately.
+export function mergeIssueUpdate(issues: Issue[], updated: Issue) {
+  const summary = (link: DependencyItem) => link.issueId === updated.id ? { ...link, issueKey: updated.issueKey || link.issueKey, title: updated.title, status: updated.status } : link;
+  return issues.map(issue => issue.id === updated.id ? updated : { ...issue, blockedBy: issue.blockedBy?.map(summary), blocks: issue.blocks?.map(summary) });
 }

@@ -24,6 +24,7 @@ public class IssueService {
     private final IssueActivityRepository activities;
     private final ActivityService activityService;
     private final NotificationService notifications;
+    private final DependencyService dependencies;
 
     public IssueService(
             IssueRepository issues,
@@ -33,7 +34,7 @@ public class IssueService {
             MembershipService membershipService,
             IssueCommentRepository comments,
             IssueActivityRepository activities,
-            ActivityService activityService, NotificationService notifications) {
+            ActivityService activityService, NotificationService notifications, DependencyService dependencies) {
         this.issues = issues;
         this.projects = projects;
         this.memberships = memberships;
@@ -42,7 +43,7 @@ public class IssueService {
         this.comments = comments;
         this.activities = activities;
         this.activityService = activityService;
-        this.notifications = notifications;
+        this.notifications = notifications; this.dependencies = dependencies;
     }
 
     @Transactional
@@ -102,6 +103,8 @@ public class IssueService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Only the project owner or current assignee can change issue status");
         }
+        if (issue.getStatus() == request.status()) return toResponse(issue);
+        dependencies.requireUnblocked(issue);
         validateStatus(issue, request.status());
         if (issue.getStatus() != request.status()) notifications.statusChanged(issue, actor, request.status());
         activityService.record(issue, email, ActivityField.STATUS, issue.getStatus().name(), request.status().name());
@@ -149,6 +152,7 @@ public class IssueService {
         Issue issue = getIssue(projectId, issueId);
         if (!issues.findByParentId(issueId).isEmpty())
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Move or delete child issues before deleting their parent");
+        dependencies.removeForDeletedIssue(issue, email);
         comments.deleteAllByIssueId(issueId);
         activities.deleteAllByIssueId(issueId);
         issues.delete(issue);
@@ -209,6 +213,7 @@ public class IssueService {
                     throw new ResponseStatusException(HttpStatus.CONFLICT, "Reopen the completed parent before adding unfinished work");
             }
         }
+        if (record && !Objects.equals(issue.getParent() != null ? issue.getParent().getId() : null, parent != null ? parent.getId() : null)) dependencies.validateParent(issue, parent);
         if (record) activityService.record(issue, email, ActivityField.PARENT,
                 issue.getParent() != null ? issue.getParent().getIssueKey() : null, parent != null ? parent.getIssueKey() : null);
         issue.setParent(parent);
@@ -272,7 +277,8 @@ public class IssueService {
                 issue.getEffectiveSprint() != null ? issue.getEffectiveSprint().getId() : null,
                 issue.getPlanningRank() != null ? issue.getPlanningRank() : issue.getId(),
                 issue.getParent() != null ? issue.getParent().getId() : null,
-                issue.getParent() != null ? issue.getParent().getIssueKey() : null
+                issue.getParent() != null ? issue.getParent().getIssueKey() : null,
+                dependencies.blockedBy(issue), dependencies.blocks(issue)
         );
     }
 }

@@ -33,7 +33,7 @@ class ActivityServiceTests {
         projectMemberships = mock(ProjectMembershipRepository.class); memberships = mock(MembershipService.class);
         comments = mock(IssueCommentRepository.class);
         service = new ActivityService(activities, issues, users, memberships);
-        issueService = new IssueService(issues, projects, projectMemberships, users, memberships, comments, activities, service, mock(NotificationService.class));
+        issueService = new IssueService(issues, projects, projectMemberships, users, memberships, comments, activities, service, mock(NotificationService.class), mock(DependencyService.class));
         actor = new AppUser(); actor.setId(7L); actor.setName("Sam"); actor.setEmail("sam@example.test");
         project = new Project(); project.setId(1L); project.setOwner(actor);
         issue = new Issue(); issue.setId(2L); issue.setProject(project); issue.setTitle("Original");
@@ -190,7 +190,7 @@ class ActivityServiceTests {
     @Test
     void projectDeletionRemovesActivityBeforeDeletingItsIssues() {
         new ProjectService(projects, users, projectMemberships, issues, comments, activities,
-                mock(ProjectLeaveRequestRepository.class), mock(SprintRepository.class), mock(SavedIssueFilterRepository.class)).delete(1L, actor.getEmail());
+                mock(ProjectLeaveRequestRepository.class), mock(SprintRepository.class), mock(SavedIssueFilterRepository.class), mock(IssueDependencyRepository.class)).delete(1L, actor.getEmail());
         var order = inOrder(activities, issues, projects);
         order.verify(activities).deleteAllByProjectId(1L); order.verify(issues).deleteByProjectId(1L); order.verify(projects).delete(project);
     }
