@@ -120,6 +120,23 @@ A full-stack, multi-user project management application built using **Spring Boo
 - Dependency summaries are included in issue responses, including advanced search results. Completing, reopening or deleting a visible issue updates related local summaries
 - If a link change saves but refreshing fails, further link mutations and status controls lock until data is refreshed; retry only reloads and never repeats the saved mutation
 
+### Project and Sprint Analytics
+- Dedicated Analytics tab, available to every current project member through a read-only, non-cached endpoint
+- Project totals, status distribution, completion percentage, estimated/completed points, and estimate coverage
+- Headline metrics count stories, tasks and bugs once; epics and subtasks are counted separately to avoid double-counting hierarchy work
+- Overdue uses the server's current calendar date, excludes due-today and completed issues, and is clearly dated in the response/UI
+- Blocked counts cover unfinished standard issues with at least one unfinished direct dependency; multiple blockers count the issue once
+- Backlog counts cover unfinished standard issues outside a sprint, preserving in-progress carry-over
+- Workload grouped by current assignee ID, including zero-work members and unassigned work; these are current assignment totals rather than individual productivity or capacity ratings
+- A bounded attention list shows the first 20 overdue/blocked issues, with a separate full total, blocker keys and protected issue links
+- Live reports for planned/active sprints and immutable completion reports for completed sprints
+- Initial commitments versus current/final scope, with net issue-count and estimated-point changes; point changes can include re-estimation
+- Completed sprint delivery comparisons for points or issue counts, ordered by completion time; rolling averages use the latest five completed sprints
+- Completed metrics use stored sprint snapshots and survive later issue edits/deletion. Historical overdue/blocker counts are unavailable, not fabricated as zero
+- Estimates exclude unestimated issues; issue-count completion still includes them. No delivery history produces an explicit empty state rather than invented averages
+- Manual refresh, independent load/retry states, stale-data notices and request cancellation; successful issue changes refresh analytics while the tab remains open
+- This feature uses existing issue/dependency/membership/sprint records and adds no schema changes. Daily burndown is not reconstructed because daily scope/progress snapshots are not currently recorded
+
 ### Issue Comments
 - Project members can read and add plain-text comments in the issue side panel
 - Only a comment's author can edit or delete it, including when another member owns the project
@@ -278,6 +295,14 @@ Requests use `PENDING`, `APPROVED`, `REJECTED`, and `CANCELLED` states. A member
 Issue create/update payloads accept `type` (`EPIC`, `STORY`, `TASK`, `BUG`, `SUBTASK`) and optional `parentId`. For example, create an epic with `{ "title": "Authentication", "type": "EPIC" }`, link a story with `{ "title": "Login", "type": "STORY", "parentId": 1, "storyPoints": 5 }`, and add a subtask with `{ "title": "Test login", "type": "SUBTASK", "parentId": 2 }`. Issue responses include `parentId`, `parentKey` and the effective `sprintId`. Set a standard issue's `parentId` to `null` to remove its epic link. Update uses the complete issue metadata payload, including its current parent.
 
 Hierarchy conflicts return an explanatory HTTP 409 response; invalid levels or estimates return 400, and foreign-project parents return 404. Issue mutation errors use a `ProblemDetail` body with a readable `detail` field.
+
+### Analytics
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/projects/{projectId}/analytics` | Current project metrics, current assignments, attention items, sprint reports and recent delivery averages; requires membership |
+
+The response includes `generatedAt`, `asOfDate`, `project`, `epicCount`, `subtaskCount`, `backlogIssues`, `types`, `workload`, `attentionTotal`, `attention`, `sprints` and `trend`. Metrics include `total`, `todo`, `inProgress`, `done`, `estimatedIssues`, `totalPoints`, `completedPoints`, `overdue` and `blocked`. Historical sprint `overdue`/`blocked` are `null` because the stored completion snapshot does not capture those values. Planned sprints have no initial commitments or net changes until started. A sprint's completion ratio is based on its final scope, not its original commitment. Trend averages are `null` until at least one sprint has completed. Attention ordering is blocked first, then overdue, earliest due date and issue ID; workload uses current user IDs so matching display names do not merge people. Responses use `Cache-Control: no-store` and never change project data.
 
 ### Dependencies
 
@@ -516,3 +541,5 @@ Hierarchy verification: include `IssueHierarchyTests` and `PlanningServiceTests`
 Search verification: run `IssueSearchServiceTests` and `IssueSearchControllerTests` for validation, personal ownership, limits and HTTP parameter binding. Enable `liveMysqlTests=true` for `IssueSearchMysqlTests` to verify combined database predicates, key/label matching, wildcard escaping, inherited epic/sprint filtering, legacy issues, stable pagination, sorting, persistence, privacy and project cleanup. Temporary test data rolls back. Build the frontend and run `node tests/search.browser.mjs` with Playwright available for pagination, personal filter CRUD, issue navigation, recovery, stale responses and mobile checks using mock API data.
 
 Dependency verification: run `DependencyServiceTests` for directional links, owner-only mutations, status locking across every transition, cycles/hierarchy changes, no-op status requests and deletion ordering. Enable `liveMysqlTests=true` for `DependencyMysqlTests` to verify persistence, owner/assignee enforcement, activity, completion/reopening, link removal and issue/project cleanup with temporary rolled-back records. Build the frontend and run `node tests/dependencies.browser.mjs` with Playwright available for blocked cards/panels, immediate unlock/relock, owner/member controls, cycles, discussion, deletion, failed save/refresh recovery and mobile layout using mock API data.
+
+Analytics verification: run `AnalyticsServiceTests` to check hierarchy exclusions, due-today/done handling, unique blocked counts, duplicate member names, estimate coverage, immutable reports, completion-based rolling averages, bounded attention lists, membership access and HTTP cache headers. Enable `liveMysqlTests=true` for `AnalyticsMysqlTests` to verify real project/sprint calculations, permission checks and snapshot survival after edits/deletion using temporary rolled-back records. Build the frontend and run `node tests/analytics.browser.mjs` with Playwright available for chart toggles, report selection, refresh/retry behavior, updates after creation, stale-response protection, member access, empty states and responsive layout using mock API data.
